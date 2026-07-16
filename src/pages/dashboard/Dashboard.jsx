@@ -3,8 +3,6 @@ import { FiPlus } from "react-icons/fi";
 import toast from "react-hot-toast";
 
 import DashboardCards from "../../components/dashboard/DashboardCards";
-import RecentTasks from "../../components/dashboard/RecentTasks";
-import Statistics from "../../components/dashboard/Statistics";
 import TaskList from "../../components/dashboard/TaskList";
 import UpcomingTasks from "../../components/dashboard/UpcomingTasks";
 import Modal from "../../components/common/Modal";
@@ -29,6 +27,13 @@ function Dashboard() {
   const [formData, setFormData] = useState(initialFormState);
   const [formErrors, setFormErrors] = useState({});
   const [isSaving, setIsSaving] = useState(false);
+  const [modalMode, setModalMode] = useState("create");
+  const [selectedTask, setSelectedTask] = useState(null);
+  const [viewTask, setViewTask] = useState(null);
+  const [deleteTask, setDeleteTask] = useState(null);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [draggedTaskId, setDraggedTaskId] = useState(null);
 
   useEffect(() => {
     if (!user?.id) {
@@ -65,16 +70,44 @@ function Dashboard() {
   const stats = {
     total: tasks.length,
     completed: tasks.filter((task) => task.status === "completed").length,
-    inProgress: tasks.filter(
-      (task) => task.status === "in_progress" || task.status === "in progress",
-    ).length,
+    // inProgress removed; normalize older values are treated as pending in the service
+    inProgress: 0,
     pending: tasks.filter((task) => task.status === "pending").length,
   };
 
-  const recentTasks = [...tasks].sort(
-    (left, right) =>
-      new Date(right.createdAt || 0) - new Date(left.createdAt || 0),
-  );
+  const handleOpenCreateTaskModal = () => {
+    setModalMode("create");
+    setSelectedTask(null);
+    setFormData(initialFormState);
+    setFormErrors({});
+    setIsModalOpen(true);
+  };
+
+  const handleOpenEditTaskModal = (task) => {
+    setModalMode("edit");
+    setSelectedTask(task);
+    setFormData({
+      title: task.title || "",
+      description: task.description || "",
+      priority: task.priority || "medium",
+      status: task.status || "pending",
+      dueDate: task.dueDate
+        ? new Date(task.dueDate).toISOString().split("T")[0]
+        : "",
+      category: task.category || "",
+    });
+    setFormErrors({});
+    setIsModalOpen(true);
+  };
+
+  const handleOpenViewTaskModal = (task) => {
+    setViewTask(task);
+  };
+
+  const handleOpenDeleteTaskModal = (task) => {
+    setDeleteTask(task);
+    setIsDeleteModalOpen(true);
+  };
 
   const closeModal = () => {
     setIsModalOpen(false);
@@ -140,23 +173,30 @@ function Dashboard() {
     setIsSaving(true);
 
     try {
-      await taskService.createTask(
-        {
-          title: formData.title.trim(),
-          description: formData.description.trim(),
-          priority: formData.priority,
-          status: formData.status,
-          dueDate: formData.dueDate || null,
-          category: formData.category.trim() || "general",
-        },
-        user.id,
-      );
+      const payload = {
+        title: formData.title.trim(),
+        description: formData.description.trim(),
+        priority: formData.priority,
+        status: formData.status,
+        dueDate: formData.dueDate || null,
+        category: formData.category.trim() || "general",
+      };
 
-      toast.success("Task created successfully");
+      if (modalMode === "edit" && selectedTask?.id) {
+        await taskService.updateTask(selectedTask.id, payload);
+        toast.success("Task updated successfully");
+      } else {
+        await taskService.createTask(payload, user.id);
+        toast.success("Task created successfully");
+      }
+
       await refreshTasks();
-      closeModal();
+      setIsModalOpen(false);
+      setModalMode("create");
+      setSelectedTask(null);
+      setFormData(initialFormState);
     } catch (error) {
-      toast.error(error?.message || "Unable to create the task");
+      toast.error(error?.message || "Unable to save the task");
     } finally {
       setIsSaving(false);
     }
@@ -179,6 +219,84 @@ function Dashboard() {
       await refreshTasks();
     } catch (error) {
       toast.error(error?.message || "Unable to update the subtask");
+    }
+  };
+
+  const handleDeleteTask = async () => {
+    if (!deleteTask?.id) return;
+
+    setIsDeleting(true);
+    try {
+      await taskService.deleteTask(deleteTask.id);
+      toast.success("Task deleted successfully");
+      await refreshTasks();
+      setIsDeleteModalOpen(false);
+      setDeleteTask(null);
+    } catch (error) {
+      toast.error(error?.message || "Unable to delete the task");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handleToggleTaskStatus = async (taskId, nextStatus) => {
+    try {
+      await taskService.updateTaskStatus(taskId, nextStatus);
+      toast.success(
+        nextStatus === "completed"
+          ? "Task marked complete"
+          : "Task moved to pending",
+      );
+      await refreshTasks();
+    } catch (error) {
+      toast.error(error?.message || "Unable to update the task status");
+    }
+  };
+
+  const handleDragStart = (event, taskId) => {
+    try {
+      event.dataTransfer.effectAllowed = "move";
+      // store id in drag data for cross-browser consistency
+      event.dataTransfer.setData("text/plain", String(taskId));
+    } catch (err) {
+      // ignore if dataTransfer not available
+    }
+
+    setDraggedTaskId(taskId);
+  };
+
+  const handleDropTask = async (event, targetStatus) => {
+    event.preventDefault();
+
+    // try to read id from dataTransfer if state wasn't set
+    const dtId =
+      (event?.dataTransfer?.getData &&
+        event.dataTransfer.getData("text/plain")) ||
+      draggedTaskId;
+    const id = dtId || draggedTaskId;
+
+    if (!id) return;
+
+    const previous = tasks;
+
+    // optimistic UI update
+    setTasks((current) =>
+      current.map((t) => (t.id === id ? { ...t, status: targetStatus } : t)),
+    );
+
+    try {
+      await taskService.updateTaskStatus(id, targetStatus);
+      toast.success(
+        targetStatus === "completed"
+          ? "Task moved to completed"
+          : "Task moved to pending",
+      );
+      await refreshTasks();
+    } catch (error) {
+      setTasks(previous);
+      toast.error(error?.message || "Unable to move the task");
+    } finally {
+      setDraggedTaskId(null);
     }
   };
 
@@ -226,16 +344,19 @@ function Dashboard() {
 
         <DashboardCards stats={stats} />
 
-        <div className="grid gap-6 xl:grid-cols-[1.5fr_1fr]">
-          <RecentTasks tasks={recentTasks} />
-          <Statistics stats={stats} />
-        </div>
+        {/* Recent tasks and Performance widgets removed as requested */}
 
         <TaskList
           tasks={tasks}
           loading={false}
           onAddSubtask={handleAddSubtask}
           onToggleSubtask={handleToggleSubtask}
+          onViewTask={handleOpenViewTaskModal}
+          onEditTask={handleOpenEditTaskModal}
+          onDeleteTask={handleOpenDeleteTaskModal}
+          onToggleTaskStatus={handleToggleTaskStatus}
+          onDragStart={handleDragStart}
+          onDropTask={handleDropTask}
         />
 
         <UpcomingTasks tasks={tasks} />
@@ -244,7 +365,7 @@ function Dashboard() {
       <Modal
         isOpen={isModalOpen}
         onClose={closeModal}
-        title="Create a new task"
+        title={modalMode === "edit" ? "Edit task" : "Create a new task"}
       >
         <form onSubmit={handleCreateTask} className="space-y-4">
           <div className="grid gap-4 md:grid-cols-2">
@@ -321,7 +442,7 @@ function Dashboard() {
                 className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
               >
                 <option value="pending">Pending</option>
-                <option value="in_progress">In Progress</option>
+                {/* 'In Progress' status removed; only pending and completed are supported */}
                 <option value="completed">Completed</option>
               </select>
             </div>
@@ -379,10 +500,139 @@ function Dashboard() {
               disabled={isSaving}
               className="rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
             >
-              {isSaving ? "Creating..." : "Create Task"}
+              {isSaving
+                ? modalMode === "edit"
+                  ? "Saving..."
+                  : "Creating..."
+                : modalMode === "edit"
+                  ? "Save Changes"
+                  : "Create Task"}
             </button>
           </div>
         </form>
+      </Modal>
+
+      <Modal
+        isOpen={Boolean(viewTask)}
+        onClose={() => setViewTask(null)}
+        title="Task details"
+      >
+        {viewTask && (
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <h4 className="text-lg font-semibold text-slate-900">
+                {viewTask.title}
+              </h4>
+              <p className="mt-2 text-sm text-slate-600">
+                {viewTask.description || "No description provided"}
+              </p>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-xl border border-slate-200 p-3 text-sm text-slate-600">
+                <span className="font-medium text-slate-700">Priority:</span>{" "}
+                {viewTask.priority}
+              </div>
+              <div className="rounded-xl border border-slate-200 p-3 text-sm text-slate-600">
+                <span className="font-medium text-slate-700">Status:</span>{" "}
+                {viewTask.status}
+              </div>
+              <div className="rounded-xl border border-slate-200 p-3 text-sm text-slate-600">
+                <span className="font-medium text-slate-700">Category:</span>{" "}
+                {viewTask.category || "general"}
+              </div>
+              <div className="rounded-xl border border-slate-200 p-3 text-sm text-slate-600">
+                <span className="font-medium text-slate-700">Due date:</span>{" "}
+                {viewTask.dueDate
+                  ? new Date(viewTask.dueDate).toLocaleDateString()
+                  : "Not set"}
+              </div>
+              <div className="rounded-xl border border-slate-200 p-3 text-sm text-slate-600">
+                <span className="font-medium text-slate-700">Created:</span>{" "}
+                {viewTask.createdAt
+                  ? new Date(viewTask.createdAt).toLocaleString()
+                  : "Not available"}
+              </div>
+              <div className="rounded-xl border border-slate-200 p-3 text-sm text-slate-600">
+                <span className="font-medium text-slate-700">Updated:</span>{" "}
+                {viewTask.updatedAt
+                  ? new Date(viewTask.updatedAt).toLocaleString()
+                  : "Not available"}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <h4 className="text-sm font-semibold text-slate-900">
+                  Subtasks
+                </h4>
+                <span className="text-sm text-slate-500">
+                  {
+                    (viewTask.subtasks ?? []).filter(
+                      (subtask) => subtask.completed,
+                    ).length
+                  }
+                  /{viewTask.subtasks?.length ?? 0}
+                </span>
+              </div>
+              {(viewTask.subtasks ?? []).length ? (
+                <div className="space-y-2">
+                  {viewTask.subtasks.map((subtask) => (
+                    <div
+                      key={subtask.id}
+                      className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
+                    >
+                      <span
+                        className={
+                          subtask.completed ? "line-through text-slate-400" : ""
+                        }
+                      >
+                        {subtask.title}
+                      </span>
+                      <span className="text-xs text-slate-500">
+                        {subtask.completed ? "Complete" : "Pending"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-slate-500">
+                  No subtasks have been added yet.
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        isOpen={isDeleteModalOpen}
+        onClose={() => setIsDeleteModalOpen(false)}
+        title="Delete task"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-slate-600">
+            This action will permanently remove the task and its subtasks from
+            your dashboard. Continue?
+          </p>
+          <div className="flex flex-col-reverse gap-3 border-t border-slate-200 pt-4 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              onClick={() => setIsDeleteModalOpen(false)}
+              className="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleDeleteTask}
+              disabled={isDeleting}
+              className="rounded-lg bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:bg-rose-300"
+            >
+              {isDeleting ? "Deleting..." : "Delete"}
+            </button>
+          </div>
+        </div>
       </Modal>
     </DashboardLayout>
   );
