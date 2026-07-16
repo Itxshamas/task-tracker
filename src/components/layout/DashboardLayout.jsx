@@ -1,26 +1,31 @@
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import {
-  FiMenu,
-  FiX,
+  FiChevronDown,
   FiLayout,
-  FiCheckSquare,
-  FiSettings,
   FiLogOut,
+  FiMenu,
+  FiUser,
+  FiX,
 } from "react-icons/fi";
 
 import useAuth from "../../hooks/useAuth";
+import { getInitials } from "../../utils/generateAvatar";
 
 const navigation = [
   { name: "Dashboard", href: "/dashboard", icon: FiLayout },
-  { name: "Tasks", href: "/tasks", icon: FiCheckSquare },
-  { name: "Settings", href: "/settings", icon: FiSettings },
+  { name: "Profile", href: "/profile", icon: FiUser },
 ];
 
 function DashboardLayout({ children }) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const location = useLocation();
   const { logout, user } = useAuth();
+
+  const displayName =
+    user?.user_metadata?.full_name || user?.email?.split("@")[0] || "User";
+  const displayEmail = user?.email || "Signed in";
 
   const handleLogout = async () => {
     await logout();
@@ -50,7 +55,10 @@ function DashboardLayout({ children }) {
           <nav className="space-y-1 px-4 py-6">
             {navigation.map((item) => {
               const Icon = item.icon;
-              const isActive = location.pathname === item.href;
+              const isActive =
+                location.pathname === item.href ||
+                (item.href === "/dashboard" &&
+                  location.pathname.startsWith("/dashboard"));
 
               return (
                 <Link
@@ -68,9 +76,7 @@ function DashboardLayout({ children }) {
 
           <div className="absolute inset-x-0 bottom-0 border-t border-slate-800 p-4">
             <div className="mb-3 rounded-xl bg-slate-800/80 p-3">
-              <p className="text-sm font-medium text-white">
-                {user?.email ?? "Signed in"}
-              </p>
+              <p className="text-sm font-medium text-white">{displayEmail}</p>
               <p className="text-xs text-slate-400">Workspace access</p>
             </div>
             <button
@@ -101,15 +107,57 @@ function DashboardLayout({ children }) {
                   Welcome back
                 </p>
                 <h1 className="text-lg font-semibold text-slate-900">
-                  {user?.user_metadata?.full_name || "Your Dashboard"}
+                  {displayName}
                 </h1>
               </div>
 
-              <div className="hidden rounded-full bg-blue-50 px-3 py-1 text-sm font-medium text-blue-700 sm:block">
-                {new Date().toLocaleDateString("en", {
-                  month: "short",
-                  day: "numeric",
-                })}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setIsProfileMenuOpen((value) => !value)}
+                  className="flex items-center gap-3 rounded-full border border-slate-200 bg-slate-50 px-2 py-1.5 shadow-sm"
+                >
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-600 text-sm font-semibold text-white">
+                    {getInitials(displayName)}
+                  </div>
+                  <div className="hidden text-left sm:block">
+                    <p className="text-sm font-medium text-slate-800">
+                      {displayName}
+                    </p>
+                    <p className="text-xs text-slate-500">{displayEmail}</p>
+                  </div>
+                  <FiChevronDown className="mr-1 h-4 w-4 text-slate-500" />
+                </button>
+
+                {isProfileMenuOpen && (
+                  <div className="absolute right-0 mt-2 w-56 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
+                    <div className="rounded-lg bg-slate-50 p-3">
+                      <p className="text-sm font-semibold text-slate-900">
+                        {displayName}
+                      </p>
+                      <p className="text-xs text-slate-500">{displayEmail}</p>
+                    </div>
+                    <Link
+                      to="/profile"
+                      className="mt-2 flex items-center rounded-lg px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-100"
+                      onClick={() => setIsProfileMenuOpen(false)}
+                    >
+                      <FiUser className="mr-2 h-4 w-4" />
+                      Profile
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsProfileMenuOpen(false);
+                        handleLogout();
+                      }}
+                      className="flex w-full items-center rounded-lg px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-100"
+                    >
+                      <FiLogOut className="mr-2 h-4 w-4" />
+                      Logout
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </header>

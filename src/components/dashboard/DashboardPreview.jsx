@@ -5,13 +5,9 @@ function DashboardPreview() {
       title: "Design Landing Page",
       status: "Completed",
     },
+
     {
       id: 2,
-      title: "Build Authentication",
-      status: "In Progress",
-    },
-    {
-      id: 3,
       title: "Implement Dashboard",
       status: "Pending",
     },
@@ -25,8 +21,6 @@ function DashboardPreview() {
   const getStatusColor = (status) => {
     switch (status) {
       case "Completed":
-        return "bg-green-500";
-      case "In Progress":
         return "bg-yellow-500";
       default:
         return "bg-gray-400";

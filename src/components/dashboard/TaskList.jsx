@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import SearchBar from "../tasks/SearchBar";
 import TaskCard from "../tasks/TaskCard";
 
-const statusOptions = ["all", "pending", "in_progress", "completed"];
+const statusOptions = ["all", "pending", "completed"];
 const priorityOptions = ["all", "low", "medium", "high", "urgent"];
 const categoryOptions = [
   "all",
@@ -25,8 +25,16 @@ const sortOptions = [
 function TaskList({
   tasks = [],
   loading = false,
+  onAddTask,
   onAddSubtask,
   onToggleSubtask,
+  onToggleTaskStatus,
+  onViewTask,
+  onEditTask,
+  onDeleteTask,
+  onDeleteSubtask,
+  onDragStart,
+  onDropTask,
 }) {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -82,6 +90,13 @@ function TaskList({
 
     return sorted;
   }, [categoryFilter, priorityFilter, query, sortBy, statusFilter, tasks]);
+
+  const pendingTasks = filteredTasks.filter(
+    (task) => task.status !== "completed",
+  );
+  const completedTasks = filteredTasks.filter(
+    (task) => task.status === "completed",
+  );
 
   if (loading) {
     return (
@@ -212,17 +227,87 @@ function TaskList({
           <p className="mt-1 text-sm text-slate-500">
             Create your first task to get started.
           </p>
+          <button
+            type="button"
+            onClick={() => onAddTask?.()}
+            className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700"
+          >
+            Add Task
+          </button>
         </div>
       ) : (
-        <div className="space-y-3">
-          {filteredTasks.map((task) => (
-            <TaskCard
-              key={task.id}
-              task={task}
-              onAddSubtask={onAddSubtask}
-              onToggleSubtask={onToggleSubtask}
-            />
-          ))}
+        <div className="grid gap-6 lg:grid-cols-2">
+          <div
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) => onDropTask?.(event, "pending")}
+            className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+          >
+            <div className="mb-3 flex items-center justify-between">
+              <h4 className="font-semibold text-slate-900">Pending</h4>
+              <span className="rounded-full bg-white px-2.5 py-1 text-sm text-slate-600">
+                {pendingTasks.length}
+              </span>
+            </div>
+            <div className="space-y-3">
+              {pendingTasks.length ? (
+                pendingTasks.map((task) => (
+                  <TaskCard
+                    key={task.id}
+                    task={task}
+                    onAddSubtask={onAddSubtask}
+                    onToggleSubtask={onToggleSubtask}
+                    onToggleTaskStatus={onToggleTaskStatus}
+                    onViewTask={onViewTask}
+                    onEditTask={onEditTask}
+                    onDeleteTask={onDeleteTask}
+                    onDeleteSubtask={onDeleteSubtask}
+                    onDragStart={onDragStart}
+                    onDropTask={onDropTask}
+                  />
+                ))
+              ) : (
+                <p className="rounded-xl border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-500">
+                  Drop completed tasks here to move them back to pending.
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) => onDropTask?.(event, "completed")}
+            className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+          >
+            <div className="mb-3 flex items-center justify-between">
+              <h4 className="font-semibold text-slate-900">Completed</h4>
+              <span className="rounded-full bg-white px-2.5 py-1 text-sm text-slate-600">
+                {completedTasks.length}
+              </span>
+            </div>
+            <div className="space-y-3">
+              {completedTasks.length ? (
+                completedTasks.map((task) => (
+                  <TaskCard
+                    key={task.id}
+                    task={task}
+                    onAddSubtask={onAddSubtask}
+                    onToggleSubtask={onToggleSubtask}
+                    onToggleTaskStatus={onToggleTaskStatus}
+                    onViewTask={onViewTask}
+                    onEditTask={onEditTask}
+                    onDeleteTask={onDeleteTask}
+                    onDeleteSubtask={onDeleteSubtask}
+                    onDragStart={onDragStart}
+                    onDropTask={onDropTask}
+                  />
+                ))
+              ) : (
+                <p className="rounded-xl border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-500">
+                  Drag completed tasks here.
+                </p>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>
