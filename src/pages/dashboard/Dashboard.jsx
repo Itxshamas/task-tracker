@@ -33,6 +33,7 @@ function Dashboard() {
   const [deleteTask, setDeleteTask] = useState(null);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [draggedTaskId, setDraggedTaskId] = useState(null);
 
   useEffect(() => {
     if (!user?.id) {
@@ -252,6 +253,53 @@ function Dashboard() {
     }
   };
 
+  const handleDragStart = (event, taskId) => {
+    try {
+      event.dataTransfer.effectAllowed = "move";
+      // store id in drag data for cross-browser consistency
+      event.dataTransfer.setData("text/plain", String(taskId));
+    } catch (err) {
+      // ignore if dataTransfer not available
+    }
+
+    setDraggedTaskId(taskId);
+  };
+
+  const handleDropTask = async (event, targetStatus) => {
+    event.preventDefault();
+
+    // try to read id from dataTransfer if state wasn't set
+    const dtId =
+      (event?.dataTransfer?.getData &&
+        event.dataTransfer.getData("text/plain")) ||
+      draggedTaskId;
+    const id = dtId || draggedTaskId;
+
+    if (!id) return;
+
+    const previous = tasks;
+
+    // optimistic UI update
+    setTasks((current) =>
+      current.map((t) => (t.id === id ? { ...t, status: targetStatus } : t)),
+    );
+
+    try {
+      await taskService.updateTaskStatus(id, targetStatus);
+      toast.success(
+        targetStatus === "completed"
+          ? "Task moved to completed"
+          : "Task moved to pending",
+      );
+      await refreshTasks();
+    } catch (error) {
+      setTasks(previous);
+      toast.error(error?.message || "Unable to move the task");
+    } finally {
+      setDraggedTaskId(null);
+    }
+  };
+
   if (loading) {
     return (
       <DashboardLayout>
@@ -307,6 +355,8 @@ function Dashboard() {
           onEditTask={handleOpenEditTaskModal}
           onDeleteTask={handleOpenDeleteTaskModal}
           onToggleTaskStatus={handleToggleTaskStatus}
+          onDragStart={handleDragStart}
+          onDropTask={handleDropTask}
         />
 
         <UpcomingTasks tasks={tasks} />
