@@ -1,114 +1,188 @@
-import { useState } from "react";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useForm } from "react-hook-form";
 import { Link, useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 
 import useAuth from "../../hooks/useAuth";
+import registerSchema from "../../schemas/registerSchema";
 
 function RegisterForm() {
   const navigate = useNavigate();
   const { register } = useAuth();
-  const [formData, setFormData] = useState({
-    name: "",
-    email: "",
-    password: "",
-    confirmPassword: "",
+
+  const {
+    register: registerField,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+  } = useForm({
+    resolver: zodResolver(registerSchema),
+    defaultValues: {
+      fullName: "",
+      email: "",
+      password: "",
+      confirmPassword: "",
+    },
   });
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleChange = (event) => {
-    const { name, value } = event.target;
-
-    setFormData((previous) => ({
-      ...previous,
-      [name]: value,
-    }));
-  };
-
-  const handleSubmit = async (event) => {
-    event.preventDefault();
-
-    if (formData.password !== formData.confirmPassword) {
-      toast.error("Passwords do not match");
-      return;
-    }
-
-    setIsSubmitting(true);
-
+  const onSubmit = async (values) => {
     try {
-      await register(formData.name, formData.email, formData.password);
-      toast.success("Account created successfully");
-      navigate("/dashboard");
+      const data = await register(
+        values.fullName,
+        values.email,
+        values.password,
+      );
+
+      const requiresEmailConfirmation = !data?.session && !!data?.user;
+
+      toast.success(
+        requiresEmailConfirmation
+          ? "Registration successful. Please verify your email before signing in."
+          : "Account created successfully. You can sign in now.",
+      );
+
+      navigate("/login");
     } catch (error) {
-      toast.error(error.message || "Unable to create your account");
-    } finally {
-      setIsSubmitting(false);
+      const message = getErrorMessage(error);
+      toast.error(message);
     }
   };
 
   return (
-    <form onSubmit={handleSubmit} style={styles.form}>
-      <h2 style={styles.title}>Create account</h2>
-      <p style={styles.subtitle}>Start organizing your tasks in minutes.</p>
+    <form
+      onSubmit={handleSubmit(onSubmit)}
+      className="space-y-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8"
+    >
+      <div className="space-y-1">
+        <h2 className="text-2xl font-semibold text-slate-900">
+          Create your account
+        </h2>
+        <p className="text-sm text-slate-600">
+          Start organizing your tasks with a secure, modern workspace.
+        </p>
+      </div>
 
-      <label style={styles.label} htmlFor="name">
-        Full name
-      </label>
-      <input
-        id="name"
-        name="name"
-        type="text"
-        value={formData.name}
-        onChange={handleChange}
-        required
-        style={styles.input}
-      />
+      <div className="space-y-2">
+        <label
+          htmlFor="fullName"
+          className="block text-sm font-medium text-slate-700"
+        >
+          Full name
+        </label>
+        <input
+          id="fullName"
+          type="text"
+          autoComplete="name"
+          className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+          aria-invalid={errors.fullName ? "true" : "false"}
+          {...registerField("fullName")}
+        />
+        {errors.fullName && (
+          <p className="text-sm text-red-600">{errors.fullName.message}</p>
+        )}
+      </div>
 
-      <label style={styles.label} htmlFor="email">
-        Email
-      </label>
-      <input
-        id="email"
-        name="email"
-        type="email"
-        value={formData.email}
-        onChange={handleChange}
-        required
-        style={styles.input}
-      />
+      <div className="space-y-2">
+        <label
+          htmlFor="email"
+          className="block text-sm font-medium text-slate-700"
+        >
+          Email
+        </label>
+        <input
+          id="email"
+          type="email"
+          autoComplete="email"
+          className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+          aria-invalid={errors.email ? "true" : "false"}
+          {...registerField("email")}
+        />
+        {errors.email && (
+          <p className="text-sm text-red-600">{errors.email.message}</p>
+        )}
+      </div>
 
-      <label style={styles.label} htmlFor="password">
-        Password
-      </label>
-      <input
-        id="password"
-        name="password"
-        type="password"
-        value={formData.password}
-        onChange={handleChange}
-        required
-        style={styles.input}
-      />
+      <div className="space-y-2">
+        <label
+          htmlFor="password"
+          className="block text-sm font-medium text-slate-700"
+        >
+          Password
+        </label>
+        <input
+          id="password"
+          type="password"
+          autoComplete="new-password"
+          className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+          aria-invalid={errors.password ? "true" : "false"}
+          {...registerField("password")}
+        />
+        {errors.password && (
+          <p className="text-sm text-red-600">{errors.password.message}</p>
+        )}
+      </div>
 
-      <label style={styles.label} htmlFor="confirmPassword">
-        Confirm password
-      </label>
-      <input
-        id="confirmPassword"
-        name="confirmPassword"
-        type="password"
-        value={formData.confirmPassword}
-        onChange={handleChange}
-        required
-        style={styles.input}
-      />
+      <div className="space-y-2">
+        <label
+          htmlFor="confirmPassword"
+          className="block text-sm font-medium text-slate-700"
+        >
+          Confirm password
+        </label>
+        <input
+          id="confirmPassword"
+          type="password"
+          autoComplete="new-password"
+          className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+          aria-invalid={errors.confirmPassword ? "true" : "false"}
+          {...registerField("confirmPassword")}
+        />
+        {errors.confirmPassword && (
+          <p className="text-sm text-red-600">
+            {errors.confirmPassword.message}
+          </p>
+        )}
+      </div>
 
-      <button type="submit" disabled={isSubmitting} style={styles.button}>
-        {isSubmitting ? "Creating account..." : "Create account"}
+      <button
+        type="submit"
+        disabled={isSubmitting}
+        className="flex w-full items-center justify-center rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
+      >
+        {isSubmitting ? (
+          <>
+            <svg
+              className="mr-2 h-4 w-4 animate-spin"
+              viewBox="0 0 24 24"
+              fill="none"
+              aria-hidden="true"
+            >
+              <circle
+                className="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                strokeWidth="4"
+              />
+              <path
+                className="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8v3a5 5 0 00-5 5H4z"
+              />
+            </svg>
+            Creating account...
+          </>
+        ) : (
+          "Create account"
+        )}
       </button>
 
-      <p style={styles.helperText}>
+      <p className="text-center text-sm text-slate-600">
         Already have an account?{" "}
-        <Link to="/login" style={styles.link}>
+        <Link
+          to="/login"
+          className="font-medium text-blue-600 hover:text-blue-700"
+        >
           Sign in
         </Link>
       </p>
@@ -116,53 +190,32 @@ function RegisterForm() {
   );
 }
 
-const styles = {
-  form: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "0.75rem",
-    padding: "2rem",
-    borderRadius: "0.75rem",
-    backgroundColor: "#fff",
-    boxShadow: "0 12px 30px rgba(15, 23, 42, 0.08)",
-  },
-  title: {
-    margin: 0,
-    fontSize: "1.5rem",
-    color: "#0f172a",
-  },
-  subtitle: {
-    margin: 0,
-    color: "#475569",
-  },
-  label: {
-    fontWeight: 600,
-    color: "#334155",
-  },
-  input: {
-    padding: "0.75rem 0.9rem",
-    border: "1px solid #cbd5e1",
-    borderRadius: "0.5rem",
-    fontSize: "1rem",
-  },
-  button: {
-    marginTop: "0.5rem",
-    padding: "0.8rem 1rem",
-    border: "none",
-    borderRadius: "0.5rem",
-    backgroundColor: "#2563eb",
-    color: "#fff",
-    fontSize: "1rem",
-    cursor: "pointer",
-  },
-  helperText: {
-    margin: 0,
-    color: "#475569",
-  },
-  link: {
-    color: "#2563eb",
-    textDecoration: "none",
-  },
-};
+function getErrorMessage(error) {
+  const message = error?.message || "";
+
+  if (message.toLowerCase().includes("already")) {
+    return "An account with this email already exists.";
+  }
+
+  if (message.toLowerCase().includes("password")) {
+    return "Please choose a stronger password.";
+  }
+
+  if (
+    message.toLowerCase().includes("invalid") ||
+    message.toLowerCase().includes("email")
+  ) {
+    return "Please enter a valid email address.";
+  }
+
+  if (
+    message.toLowerCase().includes("network") ||
+    message.toLowerCase().includes("fetch")
+  ) {
+    return "Network error. Please check your connection and try again.";
+  }
+
+  return "Unable to create your account right now. Please try again.";
+}
 
 export default RegisterForm;
