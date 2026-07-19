@@ -1,9 +1,11 @@
 import { useState } from "react";
+import type { DragEvent } from "react";
 
 import PriorityBadge from "./PriorityBadge";
 import StatusBadge from "./StatusBadge";
+import type { Task, TaskStatus } from "../../types/task";
 
-function formatDate(value) {
+function formatDate(value: string | null) {
   if (!value) return "Not set";
 
   const date = new Date(value);
@@ -17,6 +19,19 @@ function formatDate(value) {
   }).format(date);
 }
 
+interface TaskItemProps {
+  task: Task;
+  onAddSubtask: (taskId: string, title: string) => Promise<void>;
+  onToggleSubtask: (subtaskId: string, completed: boolean) => Promise<void>;
+  onToggleTaskStatus: (taskId: string, status: TaskStatus) => Promise<void>;
+  onViewTask: (task: Task) => void;
+  onEditTask: (task: Task) => void;
+  onDeleteTask: (task: Task) => void;
+  onDeleteSubtask: (subtaskId: string) => Promise<void>;
+  onDragStart: (event: DragEvent<HTMLDivElement>, taskId: string) => void;
+  onDropTask?: (event: DragEvent<HTMLDivElement>, targetStatus: TaskStatus) => void;
+}
+
 function TaskItem({
   task,
   onAddSubtask,
@@ -27,14 +42,12 @@ function TaskItem({
   onDeleteTask,
   onDeleteSubtask,
   onDragStart,
-  onDropTask,
-}) {
+}: TaskItemProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [subtaskDraft, setSubtaskDraft] = useState("");
 
-  const completedSubtasks =
-    task.subtasks?.filter((item) => item.completed).length ?? 0;
-  const totalSubtasks = task.subtasks?.length ?? 0;
+  const completedSubtasks = task.subtasks.filter((item) => item.completed).length;
+  const totalSubtasks = task.subtasks.length;
   const completionPercentage =
     totalSubtasks > 0
       ? Math.round((completedSubtasks / totalSubtasks) * 100)
@@ -44,16 +57,14 @@ function TaskItem({
   return (
     <div
       draggable
-      onDragStart={(event) => onDragStart?.(event, task.id)}
+      onDragStart={(event) => onDragStart(event, task.id)}
       onDragOver={(event) => event.preventDefault()}
       className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
     >
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-            <h4 className="text-base font-semibold text-slate-900">
-              {task.title}
-            </h4>
+            <h4 className="text-base font-semibold text-slate-900">{task.title}</h4>
             <PriorityBadge priority={task.priority} />
             <StatusBadge status={task.status} />
           </div>
@@ -62,8 +73,8 @@ function TaskItem({
           </p>
           <div className="flex flex-wrap gap-3 text-sm text-slate-500">
             <span>Category: {task.category || "Uncategorized"}</span>
-            <span>Due: {formatDate(task.dueDate)}</span>
-            <span>Created: {formatDate(task.createdAt)}</span>
+            <span>Due: {formatDate(task.due_date)}</span>
+            <span>Created: {formatDate(task.created_at)}</span>
           </div>
         </div>
 
@@ -80,9 +91,7 @@ function TaskItem({
               style={{ width: `${completionPercentage}%` }}
             />
           </div>
-          <p className="text-xs text-slate-500">
-            Completion: {completionPercentage}%
-          </p>
+          <p className="text-xs text-slate-500">Completion: {completionPercentage}%</p>
         </div>
       </div>
 
@@ -90,21 +99,21 @@ function TaskItem({
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={() => onViewTask?.(task)}
+            onClick={() => onViewTask(task)}
             className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
           >
             View
           </button>
           <button
             type="button"
-            onClick={() => onEditTask?.(task)}
+            onClick={() => onEditTask(task)}
             className="rounded-lg border border-blue-200 px-3 py-2 text-sm font-medium text-blue-700 transition hover:bg-blue-50"
           >
             Edit
           </button>
           <button
             type="button"
-            onClick={() => onDeleteTask?.(task)}
+            onClick={() => onDeleteTask(task)}
             className="rounded-lg border border-rose-200 px-3 py-2 text-sm font-medium text-rose-700 transition hover:bg-rose-50"
           >
             Delete
@@ -122,10 +131,14 @@ function TaskItem({
             onClick={() =>
               onToggleTaskStatus(task.id, isCompleted ? "pending" : "completed")
             }
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition ${isCompleted ? "bg-blue-600" : "bg-slate-300"}`}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition ${
+              isCompleted ? "bg-blue-600" : "bg-slate-300"
+            }`}
           >
             <span
-              className={`inline-block h-5 w-5 transform rounded-full bg-white transition ${isCompleted ? "translate-x-5" : "translate-x-1"}`}
+              className={`inline-block h-5 w-5 transform rounded-full bg-white transition ${
+                isCompleted ? "translate-x-5" : "translate-x-1"
+              }`}
             />
           </button>
         </div>
@@ -141,7 +154,7 @@ function TaskItem({
         </button>
         <button
           type="button"
-          onClick={() => onAddSubtask?.(task)}
+          onClick={() => setIsExpanded(true)}
           className="rounded-lg border border-blue-200 px-3 py-2 text-sm font-medium text-blue-700 transition hover:bg-blue-50"
         >
           + Add Subtask
@@ -150,7 +163,7 @@ function TaskItem({
 
       {isExpanded && (
         <div className="mt-4 space-y-3 rounded-xl bg-slate-50 p-4">
-          {task.subtasks?.length ? (
+          {task.subtasks.length ? (
             <div className="space-y-2">
               {task.subtasks.map((subtask) => (
                 <div
@@ -160,7 +173,7 @@ function TaskItem({
                   <label className="flex items-center gap-2 text-sm text-slate-700">
                     <input
                       type="checkbox"
-                      checked={Boolean(subtask.completed)}
+                      checked={subtask.completed}
                       onChange={() =>
                         onToggleSubtask(subtask.id, !subtask.completed)
                       }
@@ -178,7 +191,7 @@ function TaskItem({
                   </label>
                   <button
                     type="button"
-                    onClick={() => onDeleteSubtask?.(subtask.id)}
+                    onClick={() => onDeleteSubtask(subtask.id)}
                     className="text-sm font-medium text-rose-600 hover:text-rose-700"
                   >
                     Remove
@@ -191,7 +204,7 @@ function TaskItem({
               <p className="mb-2">No subtasks yet.</p>
               <button
                 type="button"
-                onClick={() => onAddSubtask?.(task)}
+                onClick={() => setIsExpanded(true)}
                 className="font-medium text-blue-600 hover:text-blue-700"
               >
                 Add Subtask
@@ -205,7 +218,7 @@ function TaskItem({
                 e.preventDefault();
                 const title = subtaskDraft.trim();
                 if (!title) return;
-                await onAddSubtask?.(task, title);
+                await onAddSubtask(task.id, title);
                 setSubtaskDraft("");
               }}
               className="flex flex-col gap-2 sm:flex-row"
