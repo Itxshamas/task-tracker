@@ -2,12 +2,15 @@ import { useEffect, useMemo, useState } from "react";
 import { FiPlus } from "react-icons/fi";
 import toast from "react-hot-toast";
 
+import { supabase } from "../../config/supabase";
 import DashboardCards from "../../components/dashboard/DashboardCards";
 import Statistics from "../../components/dashboard/Statistics";
 import TaskList from "../../components/dashboard/TaskList";
+import AssignedTasks from "../../components/dashboard/AssignedTasks";
 import Modal from "../../components/common/Modal";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import SubtaskModal from "../../components/tasks/SubtaskModal";
+import AssignTaskModal from "../../components/tasks/AssignTaskModal";
 import useAuth from "../../hooks/useAuth";
 import taskService from "../../services/tasks/taskService";
 import { categories } from "../../constants/categories";
@@ -19,7 +22,7 @@ const initialFormState = {
   priority: "medium",
   status: "pending",
   dueDate: "",
-  category: "general",
+  category: "General",
   subtasks: [],
 };
 
@@ -42,6 +45,13 @@ function Dashboard() {
   const [subtaskTargetTask, setSubtaskTargetTask] = useState(null);
   const [activeSubtask, setActiveSubtask] = useState(null);
   const [isSubtaskSaving, setIsSubtaskSaving] = useState(false);
+  const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
+  const [assignTask, setAssignTask] = useState(null);
+  const [assignableUsers, setAssignableUsers] = useState([]);
+  const [isAssigning, setIsAssigning] = useState(false);
+  const [assignedTasks, setAssignedTasks] = useState([]);
+  const [assignedLoading, setAssignedLoading] = useState(true);
+  const [updatingAssignmentId, setUpdatingAssignmentId] = useState(null);
 
   useEffect(() => {
     if (!user?.id) {
@@ -52,18 +62,24 @@ function Dashboard() {
 
     const loadDashboardData = async () => {
       setLoading(true);
+      setAssignedLoading(true);
 
       try {
-        const data = await taskService.getDashboardTasks(user.id);
+        const [data, assigned] = await Promise.all([
+          taskService.getDashboardTasks(user.id),
+          taskService.getAssignedTasks(user.id),
+        ]);
 
         if (isMounted) {
           setTasks(data);
+          setAssignedTasks(assigned);
         }
       } catch (error) {
         toast.error(error?.message || "Unable to load dashboard data");
       } finally {
         if (isMounted) {
           setLoading(false);
+          setAssignedLoading(false);
         }
       }
     };
@@ -109,6 +125,18 @@ function Dashboard() {
   const handleOpenDeleteTaskModal = (task) => {
     setDeleteTask(task);
     setIsDeleteModalOpen(true);
+  };
+
+  const handleOpenAssignTaskModal = async (task) => {
+    setAssignTask(task);
+    setIsAssignModalOpen(true);
+
+    try {
+      const users = await taskService.getTeamUsers(user?.id);
+      setAssignableUsers(users);
+    } catch (error) {
+      toast.error(error?.message || "Unable to load team members");
+    }
   };
 
   const handleOpenSubtaskModal = (task, subtask = null) => {
@@ -176,8 +204,13 @@ function Dashboard() {
     }
 
     try {
-      const data = await taskService.getDashboardTasks(user.id);
+      const [data, assigned] = await Promise.all([
+        taskService.getDashboardTasks(user.id),
+        taskService.getAssignedTasks(user.id),
+      ]);
+
       setTasks(data);
+      setAssignedTasks(assigned);
     } catch (error) {
       toast.error(error?.message || "Unable to refresh dashboard data");
     }
@@ -201,7 +234,7 @@ function Dashboard() {
         priority: formData.priority,
         status: formData.status,
         dueDate: formData.dueDate || null,
-        category: formData.category.trim() || "general",
+        category: (formData.category || "").trim() || "General",
       };
 
       if (modalMode === "edit" && selectedTask?.id) {
@@ -329,6 +362,104 @@ function Dashboard() {
     } finally {
       setIsSubtaskSaving(false);
     }
+  };
+
+  const handleAssignTask = async (assignedToId) => {
+    if (!assignTask?.id || !assignedToId || !user?.id) {
+      return;
+    }
+
+    setIsAssigning(true);
+
+    try {
+      const assignment = await taskService.assignTask(
+        assignTask.id,
+        assignedToId,
+        user.id,
+      );
+
+      const assignedUserName =
+        assignment?.assignedUser?.fullName ||
+        assignment?.assignedUser?.email ||
+        "Assigned user";
+
+      setTasks((current) =>
+        current.map((task) =>
+          task.id === assignTask.id
+            ? {
+                ...task,
+                assignedUsers: [assignment],
+                assignedUserName,
+              }
+            : task,
+        ),
+      );
+
+      toast.success("Task assigned successfully");
+      setIsAssignModalOpen(false);
+      setAssignTask(null);
+    } catch (error) {
+      toast.error(error?.message || "Unable to assign the task");
+    } finally {
+      setIsAssigning(false);
+    }
+  };
+
+  const handleUpdateAssignment = async (
+    assignmentId,
+    nextStatus,
+    successMessage,
+  ) => {
+    if (!assignmentId) {
+      return;
+    }
+
+    setUpdatingAssignmentId(assignmentId);
+    const previousAssignments = assignedTasks;
+
+    setAssignedTasks((current) =>
+      current.map((assignment) =>
+        assignment.id === assignmentId
+          ? { ...assignment, status: nextStatus }
+          : assignment,
+      ),
+    );
+
+    try {
+      const updatedAssignment = await taskService.updateAssignmentStatus(
+        assignmentId,
+        nextStatus,
+      );
+
+      setAssignedTasks((current) =>
+        current.map((assignment) =>
+          assignment.id === assignmentId ? updatedAssignment : assignment,
+        ),
+      );
+      await refreshTasks();
+      toast.success(successMessage);
+    } catch (error) {
+      setAssignedTasks(previousAssignments);
+      toast.error(error?.message || "Unable to update assignment status");
+    } finally {
+      setUpdatingAssignmentId(null);
+    }
+  };
+
+  const handleAcceptAssignment = (assignment) => {
+    handleUpdateAssignment(assignment.id, "accepted", "Assignment accepted");
+  };
+
+  const handleRejectAssignment = (assignment) => {
+    handleUpdateAssignment(assignment.id, "rejected", "Assignment rejected");
+  };
+
+  const handleCompleteAssignment = (assignment) => {
+    handleUpdateAssignment(
+      assignment.id,
+      "completed",
+      "Assignment marked completed",
+    );
   };
 
   const handleDeleteTask = async () => {
@@ -477,7 +608,19 @@ function Dashboard() {
           onToggleTaskStatus={handleToggleTaskStatus}
           onDragStart={handleDragStart}
           onDropTask={handleDropTask}
+          onAssignTask={handleOpenAssignTaskModal}
         />
+
+        <div className="mt-6">
+          <AssignedTasks
+            assignments={assignedTasks}
+            loading={assignedLoading}
+            updatingAssignmentId={updatingAssignmentId}
+            onAccept={handleAcceptAssignment}
+            onReject={handleRejectAssignment}
+            onComplete={handleCompleteAssignment}
+          />
+        </div>
       </div>
 
       <Modal
@@ -607,7 +750,7 @@ function Dashboard() {
                       ? { label: category, value: category }
                       : category;
 
-                  const value = option.value ?? option.label ?? "general";
+                  const value = option.value ?? option.label ?? "General";
                   const label = option.label ?? String(value);
 
                   return (
@@ -755,6 +898,18 @@ function Dashboard() {
         onSubmit={handleSaveSubtask}
         isSubmitting={isSubtaskSaving}
         tasks={tasks}
+      />
+
+      <AssignTaskModal
+        isOpen={isAssignModalOpen}
+        onClose={() => {
+          setIsAssignModalOpen(false);
+          setAssignTask(null);
+        }}
+        users={assignableUsers}
+        selectedUserId={assignTask?.assignedUserId}
+        onAssign={handleAssignTask}
+        isAssigning={isAssigning}
       />
 
       <Modal

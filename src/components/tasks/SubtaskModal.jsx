@@ -22,7 +22,7 @@ function SubtaskModal({
     return (tasks ?? []).map((task) => ({
       id: task.id,
       label: task.title || "Untitled task",
-      category: task.category || "general",
+      category: task.category || "General",
     }));
   }, [tasks]);
 
@@ -113,7 +113,7 @@ function SubtaskModal({
             <>
               <p className="mt-1 text-sm text-slate-600">{parentTask.title}</p>
               <p className="mt-1 text-xs text-slate-500">
-                Category: {parentTask.category || "general"}
+                Category: {parentTask.category || "General"}
               </p>
             </>
           )}

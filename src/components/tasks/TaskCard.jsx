@@ -11,6 +11,7 @@ function TaskCard({
   onDeleteSubtask,
   onDragStart,
   onDropTask,
+  onAssignTask,
 }) {
   return (
     <TaskItem
@@ -24,6 +25,7 @@ function TaskCard({
       onDeleteSubtask={onDeleteSubtask}
       onDragStart={onDragStart}
       onDropTask={onDropTask}
+      onAssignTask={onAssignTask}
     />
   );
 }

@@ -6,6 +6,7 @@ import {
   FiLogOut,
   FiMenu,
   FiUser,
+  FiUsers,
   FiX,
 } from "react-icons/fi";
 
@@ -14,6 +15,7 @@ import { getInitials } from "../../utils/generateAvatar";
 
 const navigation = [
   { name: "Dashboard", href: "/dashboard", icon: FiLayout },
+  { name: "Users", href: "/users", icon: FiUsers },
   { name: "Profile", href: "/profile", icon: FiUser },
 ];
 

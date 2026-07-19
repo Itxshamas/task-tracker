@@ -32,6 +32,21 @@ const authService = {
     const { error } = await supabase.auth.signOut();
 
     if (error) throw error;
+
+    // Also remove any lingering supabase-related keys from localStorage
+    try {
+      Object.keys(window.localStorage || {}).forEach((key) => {
+        if (/supabase|sb-|supabase.auth/i.test(key)) {
+          try {
+            window.localStorage.removeItem(key);
+          } catch (e) {
+            // ignore
+          }
+        }
+      });
+    } catch (e) {
+      // ignore
+    }
   },
 
   async forgotPassword(email) {

@@ -26,6 +26,7 @@ function TaskItem({
   onDeleteSubtask,
   onDragStart,
   onDropTask,
+  onAssignTask,
 }) {
   const completedSubtasks =
     task.subtasks?.filter((item) => item.completed).length ?? 0;
@@ -59,6 +60,7 @@ function TaskItem({
             <span>Category: {task.category || "Uncategorized"}</span>
             <span>Due: {formatDate(task.dueDate)}</span>
             <span>Created: {formatDate(task.createdAt)}</span>
+            <span>Assigned: {task.assignedUserName || "Unassigned"}</span>
           </div>
         </div>
 
@@ -103,6 +105,13 @@ function TaskItem({
             className="rounded-lg border border-rose-200 px-3 py-2 text-sm font-medium text-rose-700 transition hover:bg-rose-50"
           >
             Delete
+          </button>
+          <button
+            type="button"
+            onClick={() => onAssignTask?.(task)}
+            className="rounded-lg border border-violet-200 px-3 py-2 text-sm font-medium text-violet-700 transition hover:bg-violet-50"
+          >
+            Assign Task
           </button>
         </div>
 
