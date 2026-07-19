@@ -2,12 +2,15 @@ import { useEffect, useMemo, useState } from "react";
 import { FiPlus } from "react-icons/fi";
 import toast from "react-hot-toast";
 
+import { supabase } from "../../config/supabase";
 import DashboardCards from "../../components/dashboard/DashboardCards";
 import Statistics from "../../components/dashboard/Statistics";
 import TaskList from "../../components/dashboard/TaskList";
+import AssignedTasks from "../../components/dashboard/AssignedTasks";
 import Modal from "../../components/common/Modal";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import SubtaskModal from "../../components/tasks/SubtaskModal";
+import AssignTaskModal from "../../components/tasks/AssignTaskModal";
 import useAuth from "../../hooks/useAuth";
 import taskService from "../../services/tasks/taskService";
 import { categories } from "../../constants/categories";
@@ -19,7 +22,7 @@ const initialFormState = {
   priority: "medium",
   status: "pending",
   dueDate: "",
-  category: "general",
+  category: "General",
   subtasks: [],
 };
 
@@ -42,6 +45,13 @@ function Dashboard() {
   const [subtaskTargetTask, setSubtaskTargetTask] = useState(null);
   const [activeSubtask, setActiveSubtask] = useState(null);
   const [isSubtaskSaving, setIsSubtaskSaving] = useState(false);
+  const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
+  const [assignTask, setAssignTask] = useState(null);
+  const [assignableUsers, setAssignableUsers] = useState([]);
+  const [isAssigning, setIsAssigning] = useState(false);
+  const [assignedTasks, setAssignedTasks] = useState([]);
+  const [assignedLoading, setAssignedLoading] = useState(true);
+  const [updatingAssignmentId, setUpdatingAssignmentId] = useState(null);
 
   useEffect(() => {
     if (!user?.id) {
@@ -52,18 +62,24 @@ function Dashboard() {
 
     const loadDashboardData = async () => {
       setLoading(true);
+      setAssignedLoading(true);
 
       try {
-        const data = await taskService.getDashboardTasks(user.id);
+        const [data, assigned] = await Promise.all([
+          taskService.getDashboardTasks(user.id),
+          taskService.getAssignedTasks(user.id),
+        ]);
 
         if (isMounted) {
           setTasks(data);
+          setAssignedTasks(assigned);
         }
       } catch (error) {
         toast.error(error?.message || "Unable to load dashboard data");
       } finally {
         if (isMounted) {
           setLoading(false);
+          setAssignedLoading(false);
         }
       }
     };
@@ -77,16 +93,10 @@ function Dashboard() {
 
   const stats = useMemo(() => buildTaskStats(tasks), [tasks]);
 
-  const [subtaskDraft, setSubtaskDraft] = useState({
-    title: "",
-    description: "",
-  });
-
   const handleOpenCreateTaskModal = () => {
     setModalMode("create");
     setSelectedTask(null);
     setFormData(initialFormState);
-    setSubtaskDraft({ title: "", description: "" });
     setFormErrors({});
     setIsModalOpen(true);
   };
@@ -103,9 +113,7 @@ function Dashboard() {
         ? new Date(task.dueDate).toISOString().split("T")[0]
         : "",
       category: task.category || "general",
-      subtasks: [],
     });
-    setSubtaskDraft({ title: "", description: "" });
     setFormErrors({});
     setIsModalOpen(true);
   };
@@ -119,9 +127,27 @@ function Dashboard() {
     setIsDeleteModalOpen(true);
   };
 
+  const handleOpenAssignTaskModal = async (task) => {
+    setAssignTask(task);
+    setIsAssignModalOpen(true);
+
+    try {
+      const users = await taskService.getTeamUsers(user?.id);
+      setAssignableUsers(users);
+    } catch (error) {
+      toast.error(error?.message || "Unable to load team members");
+    }
+  };
+
   const handleOpenSubtaskModal = (task, subtask = null) => {
-    setSubtaskTargetTask(task);
+    setSubtaskTargetTask(task ?? null);
     setActiveSubtask(subtask);
+    setIsSubtaskModalOpen(true);
+  };
+
+  const handleOpenGlobalSubtaskModal = () => {
+    setSubtaskTargetTask(null);
+    setActiveSubtask(null);
     setIsSubtaskModalOpen(true);
   };
 
@@ -178,8 +204,13 @@ function Dashboard() {
     }
 
     try {
-      const data = await taskService.getDashboardTasks(user.id);
+      const [data, assigned] = await Promise.all([
+        taskService.getDashboardTasks(user.id),
+        taskService.getAssignedTasks(user.id),
+      ]);
+
       setTasks(data);
+      setAssignedTasks(assigned);
     } catch (error) {
       toast.error(error?.message || "Unable to refresh dashboard data");
     }
@@ -203,31 +234,14 @@ function Dashboard() {
         priority: formData.priority,
         status: formData.status,
         dueDate: formData.dueDate || null,
-        category: formData.category.trim() || "general",
+        category: (formData.category || "").trim() || "General",
       };
 
       if (modalMode === "edit" && selectedTask?.id) {
         await taskService.updateTask(selectedTask.id, payload);
-
-        if (formData.subtasks.length) {
-          await Promise.all(
-            formData.subtasks.map((subtask) =>
-              taskService.createSubtask(
-                selectedTask.id,
-                subtask.title.trim(),
-                subtask.description?.trim(),
-              ),
-            ),
-          );
-        }
-
         toast.success("Task updated successfully");
       } else {
-        await taskService.createTaskWithSubtasks(
-          payload,
-          user.id,
-          formData.subtasks,
-        );
+        await taskService.createTask(payload, user.id);
         toast.success("Task created successfully");
       }
 
@@ -236,7 +250,6 @@ function Dashboard() {
       setModalMode("create");
       setSelectedTask(null);
       setFormData(initialFormState);
-      setSubtaskDraft({ title: "", description: "" });
     } catch (error) {
       toast.error(error?.message || "Unable to save the task");
     } finally {
@@ -291,8 +304,10 @@ function Dashboard() {
   };
 
   const handleSaveSubtask = async (payload) => {
-    if (!subtaskTargetTask?.id) {
-      toast.error("Please select a task before adding a subtask");
+    const parentTaskId = payload.parentTaskId || subtaskTargetTask?.id;
+
+    if (!parentTaskId) {
+      toast.error("Please select a parent task before adding a subtask");
       return;
     }
 
@@ -300,21 +315,45 @@ function Dashboard() {
 
     try {
       if (activeSubtask?.id) {
-        await taskService.updateSubtask(activeSubtask.id, {
-          title: payload.title,
-          description: payload.description,
-        });
+        const updatedSubtask = await taskService.updateSubtask(
+          activeSubtask.id,
+          {
+            title: payload.title,
+            description: payload.description,
+          },
+        );
+        setTasks((current) =>
+          current.map((task) =>
+            task.id === parentTaskId
+              ? {
+                  ...task,
+                  subtasks: (task.subtasks ?? []).map((subtask) =>
+                    subtask.id === updatedSubtask.id ? updatedSubtask : subtask,
+                  ),
+                }
+              : task,
+          ),
+        );
         toast.success("Subtask updated");
       } else {
-        await taskService.createSubtask(
-          subtaskTargetTask.id,
+        const createdSubtask = await taskService.createSubtask(
+          parentTaskId,
           payload.title,
           payload.description,
+        );
+        setTasks((current) =>
+          current.map((task) =>
+            task.id === parentTaskId
+              ? {
+                  ...task,
+                  subtasks: [...(task.subtasks ?? []), createdSubtask],
+                }
+              : task,
+          ),
         );
         toast.success("Subtask added");
       }
 
-      await refreshTasks();
       setIsSubtaskModalOpen(false);
       setSubtaskTargetTask(null);
       setActiveSubtask(null);
@@ -323,6 +362,104 @@ function Dashboard() {
     } finally {
       setIsSubtaskSaving(false);
     }
+  };
+
+  const handleAssignTask = async (assignedToId) => {
+    if (!assignTask?.id || !assignedToId || !user?.id) {
+      return;
+    }
+
+    setIsAssigning(true);
+
+    try {
+      const assignment = await taskService.assignTask(
+        assignTask.id,
+        assignedToId,
+        user.id,
+      );
+
+      const assignedUserName =
+        assignment?.assignedUser?.fullName ||
+        assignment?.assignedUser?.email ||
+        "Assigned user";
+
+      setTasks((current) =>
+        current.map((task) =>
+          task.id === assignTask.id
+            ? {
+                ...task,
+                assignedUsers: [assignment],
+                assignedUserName,
+              }
+            : task,
+        ),
+      );
+
+      toast.success("Task assigned successfully");
+      setIsAssignModalOpen(false);
+      setAssignTask(null);
+    } catch (error) {
+      toast.error(error?.message || "Unable to assign the task");
+    } finally {
+      setIsAssigning(false);
+    }
+  };
+
+  const handleUpdateAssignment = async (
+    assignmentId,
+    nextStatus,
+    successMessage,
+  ) => {
+    if (!assignmentId) {
+      return;
+    }
+
+    setUpdatingAssignmentId(assignmentId);
+    const previousAssignments = assignedTasks;
+
+    setAssignedTasks((current) =>
+      current.map((assignment) =>
+        assignment.id === assignmentId
+          ? { ...assignment, status: nextStatus }
+          : assignment,
+      ),
+    );
+
+    try {
+      const updatedAssignment = await taskService.updateAssignmentStatus(
+        assignmentId,
+        nextStatus,
+      );
+
+      setAssignedTasks((current) =>
+        current.map((assignment) =>
+          assignment.id === assignmentId ? updatedAssignment : assignment,
+        ),
+      );
+      await refreshTasks();
+      toast.success(successMessage);
+    } catch (error) {
+      setAssignedTasks(previousAssignments);
+      toast.error(error?.message || "Unable to update assignment status");
+    } finally {
+      setUpdatingAssignmentId(null);
+    }
+  };
+
+  const handleAcceptAssignment = (assignment) => {
+    handleUpdateAssignment(assignment.id, "accepted", "Assignment accepted");
+  };
+
+  const handleRejectAssignment = (assignment) => {
+    handleUpdateAssignment(assignment.id, "rejected", "Assignment rejected");
+  };
+
+  const handleCompleteAssignment = (assignment) => {
+    handleUpdateAssignment(
+      assignment.id,
+      "completed",
+      "Assignment marked completed",
+    );
   };
 
   const handleDeleteTask = async () => {
@@ -354,42 +491,6 @@ function Dashboard() {
     } catch (error) {
       toast.error(error?.message || "Unable to update the task status");
     }
-  };
-
-  const handleAddDraftSubtask = () => {
-    const title = subtaskDraft.title.trim();
-
-    if (!title) {
-      setFormErrors((previous) => ({
-        ...previous,
-        subtaskDraft: "Subtask title is required",
-      }));
-      return;
-    }
-
-    setFormData((previous) => ({
-      ...previous,
-      subtasks: [
-        ...previous.subtasks,
-        {
-          title,
-          description: subtaskDraft.description.trim(),
-        },
-      ],
-    }));
-
-    setSubtaskDraft({ title: "", description: "" });
-    setFormErrors((previous) => ({
-      ...previous,
-      subtaskDraft: undefined,
-    }));
-  };
-
-  const handleRemoveDraftSubtask = (index) => {
-    setFormData((previous) => ({
-      ...previous,
-      subtasks: previous.subtasks.filter((_, itemIndex) => itemIndex !== index),
-    }));
   };
 
   const handleDragStart = (event, taskId) => {
@@ -471,14 +572,23 @@ function Dashboard() {
               A snapshot of your current workload and priorities.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={handleOpenCreateTaskModal}
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700"
-          >
-            <FiPlus className="h-4 w-4" />
-            Add Task
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={handleOpenCreateTaskModal}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700"
+            >
+              <FiPlus className="h-4 w-4" />
+              Add Task
+            </button>
+            <button
+              type="button"
+              onClick={handleOpenGlobalSubtaskModal}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-blue-200 bg-white px-4 py-2.5 text-sm font-semibold text-blue-700 shadow-sm transition hover:bg-blue-50"
+            >
+              <FiPlus className="h-4 w-4" />+ Add Subtask
+            </button>
+          </div>
         </div>
 
         <DashboardCards stats={stats} />
@@ -498,7 +608,19 @@ function Dashboard() {
           onToggleTaskStatus={handleToggleTaskStatus}
           onDragStart={handleDragStart}
           onDropTask={handleDropTask}
+          onAssignTask={handleOpenAssignTaskModal}
         />
+
+        <div className="mt-6">
+          <AssignedTasks
+            assignments={assignedTasks}
+            loading={assignedLoading}
+            updatingAssignmentId={updatingAssignmentId}
+            onAccept={handleAcceptAssignment}
+            onReject={handleRejectAssignment}
+            onComplete={handleCompleteAssignment}
+          />
+        </div>
       </div>
 
       <Modal
@@ -622,11 +744,21 @@ function Dashboard() {
                 onChange={handleFieldChange}
                 className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
               >
-                {categories.map((category) => (
-                  <option key={category} value={category}>
-                    {category.charAt(0).toUpperCase() + category.slice(1)}
-                  </option>
-                ))}
+                {(categories || []).map((category) => {
+                  const option =
+                    typeof category === "string"
+                      ? { label: category, value: category }
+                      : category;
+
+                  const value = option.value ?? option.label ?? "General";
+                  const label = option.label ?? String(value);
+
+                  return (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  );
+                })}
               </select>
               {formErrors.category && (
                 <p className="mt-1 text-sm text-red-600">
@@ -634,108 +766,6 @@ function Dashboard() {
                 </p>
               )}
             </div>
-          </div>
-
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <div className="mb-3 flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-semibold text-slate-900">
-                  Subtasks
-                </h3>
-                <p className="text-sm text-slate-500">
-                  Add subtasks before saving the task.
-                </p>
-              </div>
-              <span className="text-sm text-slate-500">
-                {formData.subtasks.length} added
-              </span>
-            </div>
-
-            {formData.subtasks.length > 0 && (
-              <div className="space-y-2 pb-4">
-                {formData.subtasks.map((subtask, index) => (
-                  <div
-                    key={`${subtask.title}-${index}`}
-                    className="rounded-2xl border border-slate-200 bg-white p-3"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="font-medium text-slate-900">
-                          {subtask.title}
-                        </p>
-                        <p className="text-sm text-slate-500">
-                          {subtask.description || "No description"}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveDraftSubtask(index)}
-                        className="rounded-lg border border-rose-200 px-3 py-2 text-sm font-medium text-rose-700 transition hover:bg-rose-50"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div className="grid gap-4 md:grid-cols-2">
-              <div>
-                <label
-                  className="mb-1 block text-sm font-medium text-slate-700"
-                  htmlFor="subtaskTitle"
-                >
-                  Subtask title
-                </label>
-                <input
-                  id="subtaskTitle"
-                  name="subtaskTitle"
-                  value={subtaskDraft.title}
-                  onChange={(event) =>
-                    setSubtaskDraft((previous) => ({
-                      ...previous,
-                      title: event.target.value,
-                    }))
-                  }
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-                  placeholder="e.g. Prepare notes"
-                />
-              </div>
-              <div>
-                <label
-                  className="mb-1 block text-sm font-medium text-slate-700"
-                  htmlFor="subtaskDescription"
-                >
-                  Description
-                </label>
-                <input
-                  id="subtaskDescription"
-                  name="subtaskDescription"
-                  value={subtaskDraft.description}
-                  onChange={(event) =>
-                    setSubtaskDraft((previous) => ({
-                      ...previous,
-                      description: event.target.value,
-                    }))
-                  }
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-                  placeholder="Optional details"
-                />
-              </div>
-            </div>
-            {formErrors.subtaskDraft && (
-              <p className="mt-2 text-sm text-red-600">
-                {formErrors.subtaskDraft}
-              </p>
-            )}
-            <button
-              type="button"
-              onClick={handleAddDraftSubtask}
-              className="mt-4 inline-flex items-center justify-center rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700"
-            >
-              Add subtask
-            </button>
           </div>
 
           <div className="flex flex-col-reverse gap-3 border-t border-slate-200 pt-4 sm:flex-row sm:justify-end">
@@ -867,6 +897,19 @@ function Dashboard() {
         subtask={activeSubtask}
         onSubmit={handleSaveSubtask}
         isSubmitting={isSubtaskSaving}
+        tasks={tasks}
+      />
+
+      <AssignTaskModal
+        isOpen={isAssignModalOpen}
+        onClose={() => {
+          setIsAssignModalOpen(false);
+          setAssignTask(null);
+        }}
+        users={assignableUsers}
+        selectedUserId={assignTask?.assignedUserId}
+        onAssign={handleAssignTask}
+        isAssigning={isAssigning}
       />
 
       <Modal

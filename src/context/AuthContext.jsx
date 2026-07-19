@@ -23,6 +23,34 @@ export function AuthProvider({ children }) {
 
         setSession(currentSession);
         setUser(currentSession?.user ?? null);
+
+        // If Supabase reports no active session but there are leftover
+        // auth tokens in storage, clear them to avoid attempting refresh
+        // with a stale/invalid refresh token which results in 400 errors.
+        if (!currentSession) {
+          try {
+            const hasStored = Object.keys(window.localStorage || {}).some((k) =>
+              /supabase|sb-|supabase.auth/i.test(k),
+            );
+            if (hasStored) {
+              // sign out will clear Supabase stored session and cookies
+              await supabase.auth.signOut();
+
+              // also clear any supabase-related localStorage keys as a safety net
+              Object.keys(window.localStorage || {}).forEach((key) => {
+                if (/supabase|sb-|supabase.auth/i.test(key)) {
+                  try {
+                    window.localStorage.removeItem(key);
+                  } catch (e) {
+                    // ignore
+                  }
+                }
+              });
+            }
+          } catch (e) {
+            // ignore localStorage errors
+          }
+        }
       } finally {
         if (isMounted) {
           setLoading(false);
@@ -34,7 +62,31 @@ export function AuthProvider({ children }) {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      // If token refresh fails, clear stored session to avoid repeated
+      // refresh attempts with a bad token.
+      if (event === "TOKEN_REFRESH_FAILED") {
+        try {
+          supabase.auth.signOut();
+        } catch (e) {
+          // ignore
+        }
+
+        try {
+          Object.keys(window.localStorage || {}).forEach((key) => {
+            if (/supabase|sb-|supabase.auth/i.test(key)) {
+              try {
+                window.localStorage.removeItem(key);
+              } catch (err) {
+                // ignore
+              }
+            }
+          });
+        } catch (err) {
+          // ignore
+        }
+      }
+
       setSession(nextSession);
       setUser(nextSession?.user ?? null);
     });

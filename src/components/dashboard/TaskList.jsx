@@ -35,6 +35,7 @@ function TaskList({
   onDeleteSubtask,
   onDragStart,
   onDropTask,
+  onAssignTask,
 }) {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -263,6 +264,7 @@ function TaskList({
                     onDeleteSubtask={onDeleteSubtask}
                     onDragStart={onDragStart}
                     onDropTask={onDropTask}
+                    onAssignTask={onAssignTask}
                   />
                 ))
               ) : (
@@ -299,6 +301,7 @@ function TaskList({
                     onDeleteSubtask={onDeleteSubtask}
                     onDragStart={onDragStart}
                     onDropTask={onDropTask}
+                    onAssignTask={onAssignTask}
                   />
                 ))
               ) : (

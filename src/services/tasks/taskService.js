@@ -2,6 +2,8 @@ import { supabase } from "../../config/supabase";
 
 const TASK_TABLE = "tasks";
 const SUBTASK_TABLE = "subtasks";
+const PROFILES_TABLE = "profiles";
+const TASK_ASSIGNMENTS_TABLE = "task_assignments";
 
 function normalizeTask(task) {
   return {
@@ -14,8 +16,9 @@ function normalizeTask(task) {
         ? "completed"
         : "pending",
     priority: task.priority ?? "medium",
-    category: task.category ?? "general",
+    category: task.category ?? "General",
     subtasks: [],
+    assignedUsers: [],
   };
 }
 
@@ -25,6 +28,37 @@ function normalizeSubtask(subtask) {
     createdAt: subtask.created_at ?? subtask.createdAt ?? null,
     updatedAt: subtask.updated_at ?? subtask.updatedAt ?? null,
     completed: Boolean(subtask.completed),
+  };
+}
+
+function normalizeAssignment(assignment) {
+  const assignee = assignment.assignedTo;
+  const assigner = assignment.assignedBy;
+
+  return {
+    id: assignment.id,
+    taskId: assignment.task_id,
+    assignedToId: assignment.assigned_to,
+    assignedById: assignment.assigned_by,
+    assignedAt: assignment.assigned_at ?? null,
+    status: assignment.status ?? "assigned",
+    assignedUser: assignee
+      ? {
+          id: assignee.id,
+          fullName: assignee.full_name || assignee.name || assignee.email,
+          email: assignee.email,
+          avatarUrl: assignee.avatar_url || null,
+        }
+      : null,
+    assignedByUser: assigner
+      ? {
+          id: assigner.id,
+          fullName: assigner.full_name || assigner.name || assigner.email,
+          email: assigner.email,
+          avatarUrl: assigner.avatar_url || null,
+        }
+      : null,
+    task: assignment.task ? normalizeTask(assignment.task) : null,
   };
 }
 
@@ -51,7 +85,7 @@ async function getDashboardTasks(userId) {
     return [];
   }
 
-  const { data: subtasks, error } = await supabase
+  const { data: subtasks, error: subtasksError } = await supabase
     .from(SUBTASK_TABLE)
     .select("*")
     .in(
@@ -59,7 +93,19 @@ async function getDashboardTasks(userId) {
       tasks.map((task) => task.id),
     );
 
-  if (error) throw error;
+  if (subtasksError) throw subtasksError;
+
+  const { data: assignments, error: assignmentsError } = await supabase
+    .from(TASK_ASSIGNMENTS_TABLE)
+    .select(
+      "*, assignedTo:profiles!task_assignments_assigned_to_fkey(*), assignedBy:profiles!task_assignments_assigned_by_fkey(*)",
+    )
+    .in(
+      "task_id",
+      tasks.map((task) => task.id),
+    );
+
+  if (assignmentsError) throw assignmentsError;
 
   const subtasksByTask = (subtasks ?? []).reduce((accumulator, subtask) => {
     const taskId = subtask.task_id;
@@ -72,9 +118,24 @@ async function getDashboardTasks(userId) {
     return accumulator;
   }, {});
 
+  const assignmentsByTask = (assignments ?? []).reduce(
+    (accumulator, assignment) => {
+      const taskId = assignment.task_id;
+
+      if (!accumulator[taskId]) {
+        accumulator[taskId] = [];
+      }
+
+      accumulator[taskId].push(normalizeAssignment(assignment));
+      return accumulator;
+    },
+    {},
+  );
+
   return tasks.map((task) => ({
     ...task,
     subtasks: subtasksByTask[task.id] ?? [],
+    assignedUsers: assignmentsByTask[task.id] ?? [],
   }));
 }
 
@@ -87,7 +148,7 @@ async function createTask(taskData, userId) {
       priority: taskData.priority ?? "medium",
       status: taskData.status ?? "pending",
       due_date: taskData.dueDate ?? null,
-      category: taskData.category ?? "general",
+      category: taskData.category ?? "General",
       user_id: userId,
     })
     .select()
@@ -230,6 +291,126 @@ async function updateSubtaskStatus(subtaskId, completed) {
   return updateSubtask(subtaskId, { completed });
 }
 
+async function getTeamUsers(currentUserId) {
+  const query = supabase.from(PROFILES_TABLE).select("*");
+
+  if (currentUserId) {
+    query.neq("id", currentUserId);
+  }
+
+  const { data, error } = await query;
+
+  if (error) throw error;
+
+  return data ?? [];
+}
+
+async function getAssignedTasks(userId) {
+  if (!userId) {
+    return [];
+  }
+
+  const { data, error } = await supabase
+    .from(TASK_ASSIGNMENTS_TABLE)
+    .select(
+      "*, task:tasks(*), assignedBy:profiles!task_assignments_assigned_by_fkey(*), assignedTo:profiles!task_assignments_assigned_to_fkey(*)",
+    )
+    .eq("assigned_to", userId)
+    .order("assigned_at", { ascending: false });
+
+  if (error) throw error;
+
+  return (data ?? []).map(normalizeAssignment);
+}
+
+async function getTaskWithAssignments(taskId) {
+  if (!taskId) {
+    return null;
+  }
+
+  const { data: taskData, error: taskError } = await supabase
+    .from(TASK_TABLE)
+    .select("*")
+    .eq("id", taskId)
+    .single();
+
+  if (taskError) throw taskError;
+
+  const task = normalizeTask(taskData);
+
+  const { data: assignments, error: assignmentsError } = await supabase
+    .from(TASK_ASSIGNMENTS_TABLE)
+    .select(
+      "*, assignedTo:profiles!task_assignments_assigned_to_fkey(*), assignedBy:profiles!task_assignments_assigned_by_fkey(*)",
+    )
+    .eq("task_id", taskId);
+
+  if (assignmentsError) throw assignmentsError;
+
+  return {
+    ...task,
+    assignedUsers: (assignments ?? []).map(normalizeAssignment),
+  };
+}
+
+async function assignTask(taskId, assignedToId, assignedById) {
+  if (!taskId || !assignedToId || !assignedById) {
+    throw new Error("Missing assignment information");
+  }
+
+  const { data: existing, error: existingError } = await supabase
+    .from(TASK_ASSIGNMENTS_TABLE)
+    .select(
+      "*, assignedTo:profiles!task_assignments_assigned_to_fkey(*), assignedBy:profiles!task_assignments_assigned_by_fkey(*)",
+    )
+    .eq("task_id", taskId)
+    .eq("assigned_to", assignedToId)
+    .maybeSingle();
+
+  if (existingError) throw existingError;
+
+  if (existing) {
+    return normalizeAssignment(existing);
+  }
+
+  const { data, error } = await supabase
+    .from(TASK_ASSIGNMENTS_TABLE)
+    .insert({
+      task_id: taskId,
+      assigned_to: assignedToId,
+      assigned_by: assignedById,
+      status: "assigned",
+      assigned_at: new Date().toISOString(),
+    })
+    .select(
+      "*, assignedTo:profiles!task_assignments_assigned_to_fkey(*), assignedBy:profiles!task_assignments_assigned_by_fkey(*)",
+    )
+    .single();
+
+  if (error) throw error;
+
+  return normalizeAssignment(data);
+}
+
+async function updateAssignmentStatus(assignmentId, status) {
+  if (!assignmentId || !status) {
+    throw new Error("Missing assignment status information");
+  }
+
+  const { data, error } = await supabase
+    .from(TASK_ASSIGNMENTS_TABLE)
+    .update({ status })
+    .eq("id", assignmentId)
+    .select(
+      "*, task:tasks(*), assignedBy:profiles!task_assignments_assigned_by_fkey(*), assignedTo:profiles!task_assignments_assigned_to_fkey(*)",
+    )
+    .single();
+
+  if (error) throw error;
+
+  return normalizeAssignment(data);
+}
+
 async function getTaskProgress(taskId) {
   const subtasks = await getSubtasks(taskId);
   const completed = subtasks.filter((subtask) => subtask.completed).length;
@@ -255,6 +436,11 @@ const taskService = {
   updateTaskStatus,
   updateSubtask,
   updateSubtaskStatus,
+  getTeamUsers,
+  getAssignedTasks,
+  getTaskWithAssignments,
+  assignTask,
+  updateAssignmentStatus,
   getTaskProgress,
 };
 
