@@ -1,34 +1,49 @@
 import { supabase } from "../../config/supabase";
+import type {
+  Subtask,
+  Task,
+  TaskInsertData,
+  SubtaskInsertData,
+  TaskPriority,
+  TaskStatus,
+} from "../../types/task";
 
 const TASK_TABLE = "tasks";
 const SUBTASK_TABLE = "subtasks";
 
-function normalizeTask(task) {
+function normalizeTask(task: any): Task {
   return {
-    ...task,
-    dueDate: task.due_date ?? task.dueDate ?? null,
-    createdAt: task.created_at ?? task.createdAt ?? null,
-    updatedAt: task.updated_at ?? task.updatedAt ?? null,
+    id: task.id,
+    user_id: task.user_id ?? task.userId ?? "",
+    title: task.title ?? "",
+    description: task.description ?? "",
     status:
       task.status && String(task.status).toLowerCase() === "completed"
         ? "completed"
         : "pending",
-    priority: task.priority ?? "medium",
+    priority: (task.priority as TaskPriority) ?? "medium",
     category: task.category ?? "general",
+    due_date: task.due_date ?? task.dueDate ?? null,
+    completed: Boolean(task.completed),
+    created_at: task.created_at ?? task.createdAt ?? null,
+    updated_at: task.updated_at ?? task.updatedAt ?? null,
     subtasks: [],
   };
 }
 
-function normalizeSubtask(subtask) {
+function normalizeSubtask(subtask: any): Subtask {
   return {
-    ...subtask,
-    createdAt: subtask.created_at ?? subtask.createdAt ?? null,
-    updatedAt: subtask.updated_at ?? subtask.updatedAt ?? null,
+    id: subtask.id,
+    task_id: subtask.task_id ?? subtask.taskId ?? "",
+    title: subtask.title ?? "",
+    description: subtask.description ?? "",
     completed: Boolean(subtask.completed),
+    created_at: subtask.created_at ?? subtask.createdAt ?? null,
+    updated_at: subtask.updated_at ?? subtask.updatedAt ?? null,
   };
 }
 
-async function getTasks(userId) {
+async function getTasks(userId: string | null): Promise<Task[]> {
   if (!userId) {
     return [];
   }
@@ -44,7 +59,7 @@ async function getTasks(userId) {
   return (data ?? []).map(normalizeTask);
 }
 
-async function getDashboardTasks(userId) {
+async function getDashboardTasks(userId: string | null): Promise<Task[]> {
   const tasks = await getTasks(userId);
 
   if (!tasks.length) {
@@ -61,16 +76,19 @@ async function getDashboardTasks(userId) {
 
   if (error) throw error;
 
-  const subtasksByTask = (subtasks ?? []).reduce((accumulator, subtask) => {
-    const taskId = subtask.task_id;
+  const subtasksByTask = (subtasks ?? []).reduce(
+    (accumulator: Record<string, Subtask[]>, subtask: any) => {
+      const taskId = subtask.task_id;
 
-    if (!accumulator[taskId]) {
-      accumulator[taskId] = [];
-    }
+      if (!accumulator[taskId]) {
+        accumulator[taskId] = [];
+      }
 
-    accumulator[taskId].push(normalizeSubtask(subtask));
-    return accumulator;
-  }, {});
+      accumulator[taskId].push(normalizeSubtask(subtask));
+      return accumulator;
+    },
+    {},
+  );
 
   return tasks.map((task) => ({
     ...task,
@@ -78,7 +96,10 @@ async function getDashboardTasks(userId) {
   }));
 }
 
-async function createTask(taskData, userId) {
+async function createTask(
+  taskData: TaskInsertData,
+  userId: string,
+): Promise<Task> {
   const { data, error } = await supabase
     .from(TASK_TABLE)
     .insert({
@@ -98,14 +119,18 @@ async function createTask(taskData, userId) {
   return normalizeTask(data);
 }
 
-async function createTaskWithSubtasks(taskData, userId, subtasks = []) {
+async function createTaskWithSubtasks(
+  taskData: TaskInsertData,
+  userId: string,
+  subtasks: SubtaskInsertData[] = [],
+): Promise<Task> {
   const task = await createTask(taskData, userId);
 
   if (!subtasks.length) {
     return task;
   }
 
-  const payload = subtasks.map((subtask) => ({
+  const preparedSubtasks = subtasks.map((subtask) => ({
     task_id: task.id,
     title: subtask.title,
     description: subtask.description ?? "",
@@ -114,17 +139,14 @@ async function createTaskWithSubtasks(taskData, userId, subtasks = []) {
 
   const { data, error } = await supabase
     .from(SUBTASK_TABLE)
-    .insert(payload)
+    .insert(preparedSubtasks)
     .select();
 
   if (error) {
     try {
       await deleteTask(task.id);
     } catch (cleanupError) {
-      console.error(
-        "Failed to clean up task after subtask creation failure",
-        cleanupError,
-      );
+      console.error("Failed to clean up task after subtask creation failure", cleanupError);
     }
 
     throw error;
@@ -136,7 +158,10 @@ async function createTaskWithSubtasks(taskData, userId, subtasks = []) {
   };
 }
 
-async function updateTask(taskId, taskData) {
+async function updateTask(
+  taskId: string,
+  taskData: TaskInsertData,
+): Promise<Task> {
   const { data, error } = await supabase
     .from(TASK_TABLE)
     .update({
@@ -156,13 +181,17 @@ async function updateTask(taskId, taskData) {
   return normalizeTask(data);
 }
 
-async function deleteTask(taskId) {
+async function deleteTask(taskId: string): Promise<void> {
   const { error } = await supabase.from(TASK_TABLE).delete().eq("id", taskId);
 
   if (error) throw error;
 }
 
-async function createSubtask(taskId, title, description = "") {
+async function createSubtask(
+  taskId: string,
+  title: string,
+  description = "",
+): Promise<Subtask> {
   const { data, error } = await supabase
     .from(SUBTASK_TABLE)
     .insert({
@@ -179,7 +208,7 @@ async function createSubtask(taskId, title, description = "") {
   return normalizeSubtask(data);
 }
 
-async function getSubtasks(taskId) {
+async function getSubtasks(taskId: string): Promise<Subtask[]> {
   const { data, error } = await supabase
     .from(SUBTASK_TABLE)
     .select("*")
@@ -191,7 +220,7 @@ async function getSubtasks(taskId) {
   return (data ?? []).map(normalizeSubtask);
 }
 
-async function deleteSubtask(subtaskId) {
+async function deleteSubtask(subtaskId: string): Promise<void> {
   const { error } = await supabase
     .from(SUBTASK_TABLE)
     .delete()
@@ -200,7 +229,10 @@ async function deleteSubtask(subtaskId) {
   if (error) throw error;
 }
 
-async function updateTaskStatus(taskId, status) {
+async function updateTaskStatus(
+  taskId: string,
+  status: TaskStatus,
+): Promise<Task> {
   const { data, error } = await supabase
     .from(TASK_TABLE)
     .update({ status })
@@ -213,7 +245,10 @@ async function updateTaskStatus(taskId, status) {
   return normalizeTask(data);
 }
 
-async function updateSubtask(subtaskId, updates) {
+async function updateSubtask(
+  subtaskId: string,
+  updates: Partial<{ title: string; description: string; completed: boolean }>,
+): Promise<Subtask> {
   const { data, error } = await supabase
     .from(SUBTASK_TABLE)
     .update(updates)
@@ -226,11 +261,14 @@ async function updateSubtask(subtaskId, updates) {
   return normalizeSubtask(data);
 }
 
-async function updateSubtaskStatus(subtaskId, completed) {
+async function updateSubtaskStatus(
+  subtaskId: string,
+  completed: boolean,
+): Promise<Subtask> {
   return updateSubtask(subtaskId, { completed });
 }
 
-async function getTaskProgress(taskId) {
+async function getTaskProgress(taskId: string) {
   const subtasks = await getSubtasks(taskId);
   const completed = subtasks.filter((subtask) => subtask.completed).length;
 
