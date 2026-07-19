@@ -1,5 +1,3 @@
-import { useState } from "react";
-
 import PriorityBadge from "./PriorityBadge";
 import StatusBadge from "./StatusBadge";
 
@@ -29,9 +27,6 @@ function TaskItem({
   onDragStart,
   onDropTask,
 }) {
-  const [isExpanded, setIsExpanded] = useState(false);
-  const [subtaskDraft, setSubtaskDraft] = useState("");
-
   const completedSubtasks =
     task.subtasks?.filter((item) => item.completed).length ?? 0;
   const totalSubtasks = task.subtasks?.length ?? 0;
@@ -130,104 +125,6 @@ function TaskItem({
           </button>
         </div>
       </div>
-
-      <div className="mt-3 flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={() => setIsExpanded((value) => !value)}
-          className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
-        >
-          {isExpanded ? "Hide subtasks" : "Manage subtasks"}
-        </button>
-        <button
-          type="button"
-          onClick={() => onAddSubtask?.(task)}
-          className="rounded-lg border border-blue-200 px-3 py-2 text-sm font-medium text-blue-700 transition hover:bg-blue-50"
-        >
-          + Add Subtask
-        </button>
-      </div>
-
-      {isExpanded && (
-        <div className="mt-4 space-y-3 rounded-xl bg-slate-50 p-4">
-          {task.subtasks?.length ? (
-            <div className="space-y-2">
-              {task.subtasks.map((subtask) => (
-                <div
-                  key={subtask.id}
-                  className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2"
-                >
-                  <label className="flex items-center gap-2 text-sm text-slate-700">
-                    <input
-                      type="checkbox"
-                      checked={Boolean(subtask.completed)}
-                      onChange={() =>
-                        onToggleSubtask(subtask.id, !subtask.completed)
-                      }
-                      className="h-4 w-4 rounded border-slate-300 text-blue-600"
-                    />
-                    <span
-                      className={
-                        subtask.completed
-                          ? "text-slate-400 line-through"
-                          : "text-slate-700"
-                      }
-                    >
-                      {subtask.title}
-                    </span>
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => onDeleteSubtask?.(subtask.id)}
-                    className="text-sm font-medium text-rose-600 hover:text-rose-700"
-                  >
-                    Remove
-                  </button>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="rounded-xl border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-500">
-              <p className="mb-2">No subtasks yet.</p>
-              <button
-                type="button"
-                onClick={() => onAddSubtask?.(task)}
-                className="font-medium text-blue-600 hover:text-blue-700"
-              >
-                Add Subtask
-              </button>
-            </div>
-          )}
-          <div className="rounded-xl border border-dashed border-slate-300 bg-white p-3 text-sm text-slate-500">
-            <p className="mb-2">Create a subtask</p>
-            <form
-              onSubmit={async (e) => {
-                e.preventDefault();
-                const title = subtaskDraft.trim();
-                if (!title) return;
-                await onAddSubtask?.(task, title);
-                setSubtaskDraft("");
-              }}
-              className="flex flex-col gap-2 sm:flex-row"
-            >
-              <input
-                type="text"
-                value={subtaskDraft}
-                onChange={(event) => setSubtaskDraft(event.target.value)}
-                placeholder="Subtask title"
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
-                aria-label="Subtask title"
-              />
-              <button
-                type="submit"
-                className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-blue-700"
-              >
-                Add
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import Modal from "../common/Modal";
 
@@ -9,12 +9,22 @@ function SubtaskModal({
   subtask,
   onSubmit,
   isSubmitting,
+  tasks = [],
 }) {
   const [formData, setFormData] = useState({
     title: subtask?.title ?? "",
     description: subtask?.description ?? "",
+    parentTaskId: parentTask?.id ?? subtask?.task_id ?? "",
   });
   const [errors, setErrors] = useState({});
+
+  const taskOptions = useMemo(() => {
+    return (tasks ?? []).map((task) => ({
+      id: task.id,
+      label: task.title || "Untitled task",
+      category: task.category || "general",
+    }));
+  }, [tasks]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -24,9 +34,10 @@ function SubtaskModal({
     setFormData({
       title: subtask?.title ?? "",
       description: subtask?.description ?? "",
+      parentTaskId: parentTask?.id ?? subtask?.task_id ?? "",
     });
     setErrors({});
-  }, [isOpen, subtask]);
+  }, [isOpen, parentTask, subtask]);
 
   if (!isOpen) {
     return null;
@@ -51,6 +62,10 @@ function SubtaskModal({
       nextErrors.title = "Subtask title is required";
     }
 
+    if (!parentTask && !formData.parentTaskId) {
+      nextErrors.parentTaskId = "Please select a parent task";
+    }
+
     if (Object.keys(nextErrors).length) {
       setErrors(nextErrors);
       return;
@@ -59,6 +74,7 @@ function SubtaskModal({
     onSubmit?.({
       title: formData.title.trim(),
       description: formData.description.trim(),
+      parentTaskId: formData.parentTaskId || parentTask?.id || subtask?.task_id,
     });
   };
 
@@ -71,12 +87,36 @@ function SubtaskModal({
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
           <p className="text-sm font-medium text-slate-700">Parent task</p>
-          <p className="mt-1 text-sm text-slate-600">
-            {parentTask?.title || "Select a task"}
-          </p>
-          <p className="mt-1 text-xs text-slate-500">
-            Category: {parentTask?.category || "general"}
-          </p>
+          {!parentTask ? (
+            <>
+              <select
+                id="parent-task"
+                name="parentTaskId"
+                value={formData.parentTaskId}
+                onChange={handleChange}
+                className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+              >
+                <option value="">Select a parent task</option>
+                {taskOptions.map((task) => (
+                  <option key={task.id} value={task.id}>
+                    {task.label} ({task.category})
+                  </option>
+                ))}
+              </select>
+              {errors.parentTaskId && (
+                <p className="mt-1 text-sm text-red-600">
+                  {errors.parentTaskId}
+                </p>
+              )}
+            </>
+          ) : (
+            <>
+              <p className="mt-1 text-sm text-slate-600">{parentTask.title}</p>
+              <p className="mt-1 text-xs text-slate-500">
+                Category: {parentTask.category || "general"}
+              </p>
+            </>
+          )}
         </div>
 
         <div>

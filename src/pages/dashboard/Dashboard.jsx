@@ -77,16 +77,10 @@ function Dashboard() {
 
   const stats = useMemo(() => buildTaskStats(tasks), [tasks]);
 
-  const [subtaskDraft, setSubtaskDraft] = useState({
-    title: "",
-    description: "",
-  });
-
   const handleOpenCreateTaskModal = () => {
     setModalMode("create");
     setSelectedTask(null);
     setFormData(initialFormState);
-    setSubtaskDraft({ title: "", description: "" });
     setFormErrors({});
     setIsModalOpen(true);
   };
@@ -103,9 +97,7 @@ function Dashboard() {
         ? new Date(task.dueDate).toISOString().split("T")[0]
         : "",
       category: task.category || "general",
-      subtasks: [],
     });
-    setSubtaskDraft({ title: "", description: "" });
     setFormErrors({});
     setIsModalOpen(true);
   };
@@ -120,8 +112,14 @@ function Dashboard() {
   };
 
   const handleOpenSubtaskModal = (task, subtask = null) => {
-    setSubtaskTargetTask(task);
+    setSubtaskTargetTask(task ?? null);
     setActiveSubtask(subtask);
+    setIsSubtaskModalOpen(true);
+  };
+
+  const handleOpenGlobalSubtaskModal = () => {
+    setSubtaskTargetTask(null);
+    setActiveSubtask(null);
     setIsSubtaskModalOpen(true);
   };
 
@@ -208,26 +206,9 @@ function Dashboard() {
 
       if (modalMode === "edit" && selectedTask?.id) {
         await taskService.updateTask(selectedTask.id, payload);
-
-        if (formData.subtasks.length) {
-          await Promise.all(
-            formData.subtasks.map((subtask) =>
-              taskService.createSubtask(
-                selectedTask.id,
-                subtask.title.trim(),
-                subtask.description?.trim(),
-              ),
-            ),
-          );
-        }
-
         toast.success("Task updated successfully");
       } else {
-        await taskService.createTaskWithSubtasks(
-          payload,
-          user.id,
-          formData.subtasks,
-        );
+        await taskService.createTask(payload, user.id);
         toast.success("Task created successfully");
       }
 
@@ -236,7 +217,6 @@ function Dashboard() {
       setModalMode("create");
       setSelectedTask(null);
       setFormData(initialFormState);
-      setSubtaskDraft({ title: "", description: "" });
     } catch (error) {
       toast.error(error?.message || "Unable to save the task");
     } finally {
@@ -291,8 +271,10 @@ function Dashboard() {
   };
 
   const handleSaveSubtask = async (payload) => {
-    if (!subtaskTargetTask?.id) {
-      toast.error("Please select a task before adding a subtask");
+    const parentTaskId = payload.parentTaskId || subtaskTargetTask?.id;
+
+    if (!parentTaskId) {
+      toast.error("Please select a parent task before adding a subtask");
       return;
     }
 
@@ -300,21 +282,45 @@ function Dashboard() {
 
     try {
       if (activeSubtask?.id) {
-        await taskService.updateSubtask(activeSubtask.id, {
-          title: payload.title,
-          description: payload.description,
-        });
+        const updatedSubtask = await taskService.updateSubtask(
+          activeSubtask.id,
+          {
+            title: payload.title,
+            description: payload.description,
+          },
+        );
+        setTasks((current) =>
+          current.map((task) =>
+            task.id === parentTaskId
+              ? {
+                  ...task,
+                  subtasks: (task.subtasks ?? []).map((subtask) =>
+                    subtask.id === updatedSubtask.id ? updatedSubtask : subtask,
+                  ),
+                }
+              : task,
+          ),
+        );
         toast.success("Subtask updated");
       } else {
-        await taskService.createSubtask(
-          subtaskTargetTask.id,
+        const createdSubtask = await taskService.createSubtask(
+          parentTaskId,
           payload.title,
           payload.description,
+        );
+        setTasks((current) =>
+          current.map((task) =>
+            task.id === parentTaskId
+              ? {
+                  ...task,
+                  subtasks: [...(task.subtasks ?? []), createdSubtask],
+                }
+              : task,
+          ),
         );
         toast.success("Subtask added");
       }
 
-      await refreshTasks();
       setIsSubtaskModalOpen(false);
       setSubtaskTargetTask(null);
       setActiveSubtask(null);
@@ -354,42 +360,6 @@ function Dashboard() {
     } catch (error) {
       toast.error(error?.message || "Unable to update the task status");
     }
-  };
-
-  const handleAddDraftSubtask = () => {
-    const title = subtaskDraft.title.trim();
-
-    if (!title) {
-      setFormErrors((previous) => ({
-        ...previous,
-        subtaskDraft: "Subtask title is required",
-      }));
-      return;
-    }
-
-    setFormData((previous) => ({
-      ...previous,
-      subtasks: [
-        ...previous.subtasks,
-        {
-          title,
-          description: subtaskDraft.description.trim(),
-        },
-      ],
-    }));
-
-    setSubtaskDraft({ title: "", description: "" });
-    setFormErrors((previous) => ({
-      ...previous,
-      subtaskDraft: undefined,
-    }));
-  };
-
-  const handleRemoveDraftSubtask = (index) => {
-    setFormData((previous) => ({
-      ...previous,
-      subtasks: previous.subtasks.filter((_, itemIndex) => itemIndex !== index),
-    }));
   };
 
   const handleDragStart = (event, taskId) => {
@@ -471,14 +441,23 @@ function Dashboard() {
               A snapshot of your current workload and priorities.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={handleOpenCreateTaskModal}
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700"
-          >
-            <FiPlus className="h-4 w-4" />
-            Add Task
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={handleOpenCreateTaskModal}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700"
+            >
+              <FiPlus className="h-4 w-4" />
+              Add Task
+            </button>
+            <button
+              type="button"
+              onClick={handleOpenGlobalSubtaskModal}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-blue-200 bg-white px-4 py-2.5 text-sm font-semibold text-blue-700 shadow-sm transition hover:bg-blue-50"
+            >
+              <FiPlus className="h-4 w-4" />+ Add Subtask
+            </button>
+          </div>
         </div>
 
         <DashboardCards stats={stats} />
@@ -622,11 +601,21 @@ function Dashboard() {
                 onChange={handleFieldChange}
                 className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
               >
-                {categories.map((category) => (
-                  <option key={category} value={category}>
-                    {category.charAt(0).toUpperCase() + category.slice(1)}
-                  </option>
-                ))}
+                {(categories || []).map((category) => {
+                  const option =
+                    typeof category === "string"
+                      ? { label: category, value: category }
+                      : category;
+
+                  const value = option.value ?? option.label ?? "general";
+                  const label = option.label ?? String(value);
+
+                  return (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  );
+                })}
               </select>
               {formErrors.category && (
                 <p className="mt-1 text-sm text-red-600">
@@ -634,108 +623,6 @@ function Dashboard() {
                 </p>
               )}
             </div>
-          </div>
-
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <div className="mb-3 flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-semibold text-slate-900">
-                  Subtasks
-                </h3>
-                <p className="text-sm text-slate-500">
-                  Add subtasks before saving the task.
-                </p>
-              </div>
-              <span className="text-sm text-slate-500">
-                {formData.subtasks.length} added
-              </span>
-            </div>
-
-            {formData.subtasks.length > 0 && (
-              <div className="space-y-2 pb-4">
-                {formData.subtasks.map((subtask, index) => (
-                  <div
-                    key={`${subtask.title}-${index}`}
-                    className="rounded-2xl border border-slate-200 bg-white p-3"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="font-medium text-slate-900">
-                          {subtask.title}
-                        </p>
-                        <p className="text-sm text-slate-500">
-                          {subtask.description || "No description"}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveDraftSubtask(index)}
-                        className="rounded-lg border border-rose-200 px-3 py-2 text-sm font-medium text-rose-700 transition hover:bg-rose-50"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div className="grid gap-4 md:grid-cols-2">
-              <div>
-                <label
-                  className="mb-1 block text-sm font-medium text-slate-700"
-                  htmlFor="subtaskTitle"
-                >
-                  Subtask title
-                </label>
-                <input
-                  id="subtaskTitle"
-                  name="subtaskTitle"
-                  value={subtaskDraft.title}
-                  onChange={(event) =>
-                    setSubtaskDraft((previous) => ({
-                      ...previous,
-                      title: event.target.value,
-                    }))
-                  }
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-                  placeholder="e.g. Prepare notes"
-                />
-              </div>
-              <div>
-                <label
-                  className="mb-1 block text-sm font-medium text-slate-700"
-                  htmlFor="subtaskDescription"
-                >
-                  Description
-                </label>
-                <input
-                  id="subtaskDescription"
-                  name="subtaskDescription"
-                  value={subtaskDraft.description}
-                  onChange={(event) =>
-                    setSubtaskDraft((previous) => ({
-                      ...previous,
-                      description: event.target.value,
-                    }))
-                  }
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-                  placeholder="Optional details"
-                />
-              </div>
-            </div>
-            {formErrors.subtaskDraft && (
-              <p className="mt-2 text-sm text-red-600">
-                {formErrors.subtaskDraft}
-              </p>
-            )}
-            <button
-              type="button"
-              onClick={handleAddDraftSubtask}
-              className="mt-4 inline-flex items-center justify-center rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700"
-            >
-              Add subtask
-            </button>
           </div>
 
           <div className="flex flex-col-reverse gap-3 border-t border-slate-200 pt-4 sm:flex-row sm:justify-end">
@@ -867,6 +754,7 @@ function Dashboard() {
         subtask={activeSubtask}
         onSubmit={handleSaveSubtask}
         isSubmitting={isSubtaskSaving}
+        tasks={tasks}
       />
 
       <Modal
