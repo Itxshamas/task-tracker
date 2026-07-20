@@ -106,7 +106,7 @@ async function createTask(
       title: taskData.title,
       description: taskData.description ?? "",
       priority: taskData.priority ?? "medium",
-      status: taskData.status ?? "pending",
+      status: taskData.status ?? "todo",
       due_date: taskData.dueDate ?? null,
       category: taskData.category ?? "General",
       user_id: userId,
@@ -171,7 +171,7 @@ async function updateTask(
       title: taskData.title,
       description: taskData.description ?? "",
       priority: taskData.priority ?? "medium",
-      status: taskData.status ?? "pending",
+      status: taskData.status ?? "todo",
       due_date: taskData.dueDate ?? null,
       category: taskData.category ?? "general",
     })
