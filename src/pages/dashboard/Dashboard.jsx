@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { FiPlus } from "react-icons/fi";
 import toast from "react-hot-toast";
 
-import { supabase } from "../../config/supabase";
 import DashboardCards from "../../components/dashboard/DashboardCards";
 import Statistics from "../../components/dashboard/Statistics";
 import TaskList from "../../components/dashboard/TaskList";
@@ -99,20 +98,21 @@ function Dashboard() {
 
   const stats = useMemo(() => buildTaskStats(tasks), [tasks]);
 
+  const loadAssignableUsers = async () => {
+    try {
+      const users = await taskService.getTeamUsers(user?.id);
+      setAssignableUsers(users);
+    } catch (error) {
+      toast.error(error?.message || "Unable to load team members");
+    }
+  };
+
   const handleOpenCreateTaskModal = () => {
     setModalMode("create");
     setSelectedTask(null);
     setFormData(initialFormState);
     setFormErrors({});
-    // load assignable users for the create form
-    (async () => {
-      try {
-        const users = await taskService.getTeamUsers();
-        setAssignableUsers(users);
-      } catch (err) {
-        // ignore
-      }
-    })();
+    loadAssignableUsers();
     setIsModalOpen(true);
   };
 
@@ -127,21 +127,11 @@ function Dashboard() {
       dueDate: task.dueDate
         ? new Date(task.dueDate).toISOString().split("T")[0]
         : "",
-      category: task.category || "general",
-      assignedUserId:
-        (task.assignedUsers && task.assignedUsers[0]?.assignedToId) ||
-        (task.assignedUsers && task.assignedUsers[0]?.assignedUser?.id) ||
-        "",
+      category: task.category || "General",
+      assignedUserId: task.assignedUserId || "",
     });
     setFormErrors({});
-    (async () => {
-      try {
-        const users = await taskService.getTeamUsers();
-        setAssignableUsers(users);
-      } catch (err) {
-        // ignore
-      }
-    })();
+    loadAssignableUsers();
     setIsModalOpen(true);
   };
 
@@ -157,13 +147,7 @@ function Dashboard() {
   const handleOpenAssignTaskModal = async (task) => {
     setAssignTask(task);
     setIsAssignModalOpen(true);
-
-    try {
-      const users = await taskService.getTeamUsers(user?.id);
-      setAssignableUsers(users);
-    } catch (error) {
-      toast.error(error?.message || "Unable to load team members");
-    }
+    await loadAssignableUsers();
   };
 
   const handleOpenSubtaskModal = (task, subtask = null) => {
@@ -266,44 +250,30 @@ function Dashboard() {
 
       if (modalMode === "edit" && selectedTask?.id) {
         await taskService.updateTask(selectedTask.id, payload);
-        // update assigned user if changed
-        if (
-          (formData.assignedUserId || "") !==
-          (selectedTask?.assignedUsers?.[0]?.assignedToId ||
-            selectedTask?.assignedUsers?.[0]?.assignedUser?.id ||
-            "")
-        ) {
-          if (formData.assignedUserId) {
-            // create assignment record and set assigned_user_id
-            await taskService.assignTask(
-              selectedTask.id,
-              formData.assignedUserId,
-              user.id,
-            );
-            await taskService.setTaskAssignee(
-              selectedTask.id,
-              formData.assignedUserId,
-            );
-          } else {
-            // clear assignee
-            await taskService.setTaskAssignee(selectedTask.id, null);
-          }
+
+        const previousAssigneeId = selectedTask.assignedUserId || "";
+        const nextAssigneeId = formData.assignedUserId || "";
+
+        if (nextAssigneeId !== previousAssigneeId) {
+          await taskService.updateTaskAssignment(
+            selectedTask.id,
+            nextAssigneeId || null,
+            user.id,
+          );
         }
+
         toast.success("Task updated successfully");
       } else {
         const created = await taskService.createTask(payload, user.id);
-        // set assignee if provided
+
         if (formData.assignedUserId) {
-          await taskService.assignTask(
+          await taskService.updateTaskAssignment(
             created.id,
             formData.assignedUserId,
             user.id,
           );
-          await taskService.setTaskAssignee(
-            created.id,
-            formData.assignedUserId,
-          );
         }
+
         toast.success("Task created successfully");
       }
 
@@ -434,7 +404,7 @@ function Dashboard() {
     setIsAssigning(true);
 
     try {
-      const assignment = await taskService.assignTask(
+      const { assignment } = await taskService.updateTaskAssignment(
         assignTask.id,
         assignedToId,
         user.id,
@@ -450,7 +420,8 @@ function Dashboard() {
           task.id === assignTask.id
             ? {
                 ...task,
-                assignedUsers: [assignment],
+                assignedUsers: assignment ? [assignment] : [],
+                assignedUserId: assignedToId,
                 assignedUserName,
               }
             : task,
@@ -906,7 +877,7 @@ function Dashboard() {
               </div>
               <div className="rounded-xl border border-slate-200 p-3 text-sm text-slate-600">
                 <span className="font-medium text-slate-700">Category:</span>{" "}
-                {viewTask.category || "general"}
+                {viewTask.category || "General"}
               </div>
               <div className="rounded-xl border border-slate-200 p-3 text-sm text-slate-600">
                 <span className="font-medium text-slate-700">Due date:</span>{" "}
