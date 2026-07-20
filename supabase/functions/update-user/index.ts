@@ -1,89 +1,173 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-serve(async (req: Request) => {
-  try {
-    const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
-    const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
 
-    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-      return new Response(JSON.stringify({ error: "Server not configured" }), {
-        status: 500,
-        headers: { "Content-Type": "application/json" },
-      });
+serve(async (req: Request) => {
+  if (req.method === "OPTIONS") {
+    return new Response("ok", {
+      headers: corsHeaders,
+    });
+  }
+
+  try {
+    console.log("========== UPDATE USER ==========");
+
+    const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
+    const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+
+    if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
+      throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY.");
     }
 
-    const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-      auth: { persistSession: false },
+    const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
+      auth: {
+        persistSession: false,
+      },
     });
 
+    // Verify logged in admin
     const authHeader = req.headers.get("authorization");
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return new Response(JSON.stringify({ error: "Missing authorization" }), {
-        status: 401,
-        headers: { "Content-Type": "application/json" },
-      });
+
+    if (!authHeader) {
+      throw new Error("Missing Authorization header.");
     }
 
-    const token = authHeader.split(" ")[1];
-    const { data: callerUserData, error: callerUserErr } =
-      await admin.auth.getUser(token as string);
-    if (callerUserErr || !callerUserData?.user) {
-      return new Response(JSON.stringify({ error: "Invalid token" }), {
-        status: 401,
-        headers: { "Content-Type": "application/json" },
-      });
+    const token = authHeader.replace("Bearer ", "");
+
+    const {
+      data: { user: caller },
+      error: authError,
+    } = await admin.auth.getUser(token);
+
+    if (authError) {
+      throw authError;
     }
 
-    const callerId = callerUserData.user.id;
-    const { data: callerProfile, error: profileErr } = await admin
+    if (!caller) {
+      throw new Error("Unable to verify logged in user.");
+    }
+
+    console.log("Caller:", caller.id);
+
+    const { data: callerProfile, error: profileError } = await admin
       .from("profiles")
       .select("role")
-      .eq("id", callerId)
+      .eq("id", caller.id)
       .single();
-    if (profileErr || !callerProfile || callerProfile.role !== "admin") {
-      return new Response(JSON.stringify({ error: "Forbidden" }), {
-        status: 403,
-        headers: { "Content-Type": "application/json" },
-      });
+
+    if (profileError) {
+      throw profileError;
     }
 
-    const body = await req.json().catch(() => ({}));
-    const { id, role, full_name, email } = body;
-
-    if (!id) {
-      return new Response(JSON.stringify({ error: "Missing user id" }), {
-        status: 400,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-
-    const updates: any = {};
-    if (role) updates.role = role;
-    if (full_name !== undefined) updates.full_name = full_name;
-    if (email !== undefined) updates.email = email;
-
-    const { data: updatedProfile, error: updateErr } = await admin
-      .from("profiles")
-      .update(updates)
-      .eq("id", id)
-      .select()
-      .single();
-    if (updateErr) {
+    if (!callerProfile || callerProfile.role !== "admin") {
       return new Response(
-        JSON.stringify({ error: updateErr.message || updateErr }),
-        { status: 500, headers: { "Content-Type": "application/json" } },
+        JSON.stringify({
+          success: false,
+          error: "Only admins can update users.",
+        }),
+        {
+          status: 403,
+          headers: {
+            ...corsHeaders,
+            "Content-Type": "application/json",
+          },
+        },
       );
     }
 
-    return new Response(JSON.stringify({ profile: updatedProfile }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
-  } catch (err) {
+    // Request Body
+    const body = await req.json();
+
+    console.log("Body:", body);
+
+    const {
+      id,
+      full_name,
+      email,
+      role,
+    }: {
+      id: string;
+      full_name?: string;
+      email?: string;
+      role?: string;
+    } = body;
+
+    if (!id) {
+      throw new Error("User ID is required.");
+    }
+
+    // Build profile update
+    const profileUpdates: Record<string, any> = {};
+
+    if (full_name !== undefined) profileUpdates.full_name = full_name;
+    if (email !== undefined) profileUpdates.email = email;
+    if (role !== undefined) profileUpdates.role = role;
+
+    console.log("Updating profile...");
+
+    const { data: updatedProfile, error: updateProfileError } = await admin
+      .from("profiles")
+      .update(profileUpdates)
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (updateProfileError) {
+      throw updateProfileError;
+    }
+
+    // Update Auth Email
+    if (email) {
+      console.log("Updating auth email...");
+
+      const { error: authUpdateError } = await admin.auth.admin.updateUserById(
+        id,
+        {
+          email,
+        },
+      );
+
+      if (authUpdateError) {
+        throw authUpdateError;
+      }
+    }
+
+    console.log("User updated successfully.");
+
     return new Response(
-      JSON.stringify({ error: err?.message || String(err) }),
-      { status: 500, headers: { "Content-Type": "application/json" } },
+      JSON.stringify({
+        success: true,
+        profile: updatedProfile,
+      }),
+      {
+        status: 200,
+        headers: {
+          ...corsHeaders,
+          "Content-Type": "application/json",
+        },
+      },
+    );
+  } catch (err: any) {
+    console.error("UPDATE USER ERROR:", err);
+
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: err.message ?? String(err),
+      }),
+      {
+        status: 500,
+        headers: {
+          ...corsHeaders,
+          "Content-Type": "application/json",
+        },
+      },
     );
   }
 });

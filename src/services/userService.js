@@ -8,9 +8,12 @@ async function getSession() {
     error,
   } = await supabase.auth.getSession();
 
-  if (error) throw error;
-  if (!session || !session.user) {
-    throw new Error("Unable to retrieve session. Please sign in again.");
+  if (error) {
+    throw error;
+  }
+
+  if (!session) {
+    throw new Error("Your session has expired. Please login again.");
   }
 
   return session;
@@ -27,8 +30,8 @@ async function assertAdmin(session) {
     throw error;
   }
 
-  if (profile?.role !== "admin") {
-    throw new Error("Only administrators can create, update, or delete users");
+  if (!profile || profile.role !== "admin") {
+    throw new Error("Only administrators can perform this action.");
   }
 
   return profile;
@@ -36,74 +39,79 @@ async function assertAdmin(session) {
 
 async function invokeFunction(functionName, payload = {}) {
   const session = await getSession();
+
   await assertAdmin(session);
 
   const { data, error } = await supabase.functions.invoke(functionName, {
-    method: "POST",
-    body: JSON.stringify(payload),
+    body: payload,
     headers: {
       Authorization: `Bearer ${session.access_token}`,
-      "Content-Type": "application/json",
     },
   });
 
   if (error) {
-    const message =
-      typeof error.message === "string"
-        ? error.message
-        : "An error occurred when calling the Edge Function";
-    throw new Error(message);
+    console.error(`Edge Function (${functionName}) Error:`, error);
+
+    throw new Error(
+      error.message ||
+        error.context ||
+        `Failed to execute Edge Function: ${functionName}`,
+    );
   }
 
   return data;
 }
 
 const userService = {
-  async getUsers(excludeId) {
-    const query = supabase.from(PROFILES_TABLE).select("*");
+  async getUsers(excludeId = null) {
+    let query = supabase.from(PROFILES_TABLE).select("*");
 
-    if (excludeId) query.neq("id", excludeId);
+    if (excludeId) {
+      query = query.neq("id", excludeId);
+    }
 
-    const { data, error } = await query;
-    if (error) throw error;
+    const { data, error } = await query.order("created_at", {
+      ascending: false,
+    });
+
+    if (error) {
+      throw error;
+    }
 
     return data ?? [];
   },
 
   async createUserAsAdmin({ full_name, email, password }) {
     if (!full_name || !email || !password) {
-      throw new Error("Full name, email, and password are required");
+      throw new Error("Full name, email and password are required.");
     }
 
-    const data = await invokeFunction("create-user", {
+    return await invokeFunction("create-user", {
       full_name,
       email,
       password,
     });
-
-    return data;
   },
 
   async updateUserRole(id, updates = {}) {
     if (!id) {
-      throw new Error("User id is required");
+      throw new Error("User id is required.");
     }
 
-    const data = await invokeFunction("update-user", {
+    return await invokeFunction("update-user", {
       id,
       ...updates,
     });
-
-    return data;
   },
 
   async deleteUser(id) {
     if (!id) {
-      throw new Error("User id is required");
+      throw new Error("User id is required.");
     }
 
-    const data = await invokeFunction("delete-user", { id });
-    return data;
+    return await invokeFunction("delete-user", {
+      id,
+    });
   },
 };
 

@@ -171,23 +171,41 @@ function Users() {
                                 disabled={u.id === user?.id}
                                 onClick={async () => {
                                   if (u.id === user?.id) return;
-                                  if (
-                                    !confirm(
-                                      `Delete user ${u.email}? This cannot be undone.`,
-                                    )
-                                  )
-                                    return;
+
+                                  const confirmed = window.confirm(
+                                    `Delete user "${u.email}"?\n\nThis action cannot be undone.`,
+                                  );
+
+                                  if (!confirmed) return;
 
                                   try {
                                     setLoading(true);
-                                    await userService.deleteUser(u.id);
-                                    toast.success("User deleted");
-                                    const data =
+
+                                    console.group("Delete User");
+                                    console.log("User:", u);
+                                    console.log("User ID:", u.id);
+
+                                    const result = await userService.deleteUser(
+                                      u.id,
+                                    );
+
+                                    console.log("Delete Result:", result);
+                                    console.groupEnd();
+
+                                    toast.success("User deleted successfully");
+
+                                    const updatedUsers =
                                       await taskService.getTeamUsers();
-                                    setUsers(data || []);
+                                    setUsers(updatedUsers || []);
                                   } catch (err) {
+                                    console.group("Delete User Error");
+                                    console.error(err);
+                                    console.groupEnd();
+
                                     toast.error(
-                                      err?.message || "Unable to delete user",
+                                      err?.message ||
+                                        err?.error ||
+                                        "Unable to delete user",
                                     );
                                   } finally {
                                     setLoading(false);
