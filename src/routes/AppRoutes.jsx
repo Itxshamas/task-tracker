@@ -11,6 +11,7 @@ import Settings from "../pages/settings/Settings";
 import NotFound from "../pages/NotFound";
 import ProtectedRoute from "./ProtectedRoute";
 import PublicRoute from "./PublicRoute";
+import Profile from "../pages/profile/Profile";
 
 function AppRoutes() {
   return (
@@ -26,6 +27,7 @@ function AppRoutes() {
 
       <Route element={<ProtectedRoute />}>
         <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/profile" element={<Profile />} />
         <Route path="/users" element={<Users />} />
         <Route path="/settings" element={<Settings />} />
       </Route>
