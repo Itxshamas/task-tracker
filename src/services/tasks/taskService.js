@@ -5,6 +5,8 @@ const SUBTASK_TABLE = "subtasks";
 const PROFILES_TABLE = "profiles";
 const TASK_ASSIGNMENTS_TABLE = "task_assignments";
 
+const DEFAULT_CATEGORY = "General";
+
 function normalizeTask(task) {
   return {
     ...task,
@@ -16,7 +18,7 @@ function normalizeTask(task) {
         ? "completed"
         : "pending",
     priority: task.priority ?? "medium",
-    category: task.category ?? "General",
+    category: task.category ?? DEFAULT_CATEGORY,
     subtasks: [],
     assignedUsers: [],
     assignedUserId: task.assigned_user_id ?? null,
@@ -90,13 +92,12 @@ async function getDashboardTasks(userId) {
     return [];
   }
 
+  const taskIds = tasks.map((task) => task.id);
+
   const { data: subtasks, error: subtasksError } = await supabase
     .from(SUBTASK_TABLE)
     .select("*")
-    .in(
-      "task_id",
-      tasks.map((task) => task.id),
-    );
+    .in("task_id", taskIds);
 
   if (subtasksError) throw subtasksError;
 
@@ -105,10 +106,7 @@ async function getDashboardTasks(userId) {
     .select(
       "*, assignedTo:profiles!task_assignments_assigned_to_fkey(*), assignedBy:profiles!task_assignments_assigned_by_fkey(*)",
     )
-    .in(
-      "task_id",
-      tasks.map((task) => task.id),
-    );
+    .in("task_id", taskIds);
 
   if (assignmentsError) throw assignmentsError;
 
@@ -153,7 +151,7 @@ async function createTask(taskData, userId) {
       priority: taskData.priority ?? "medium",
       status: taskData.status ?? "pending",
       due_date: taskData.dueDate ?? null,
-      category: taskData.category ?? "General",
+      category: taskData.category ?? DEFAULT_CATEGORY,
       user_id: userId,
     })
     .select()
@@ -211,7 +209,7 @@ async function updateTask(taskId, taskData) {
       priority: taskData.priority ?? "medium",
       status: taskData.status ?? "pending",
       due_date: taskData.dueDate ?? null,
-      category: taskData.category ?? "general",
+      category: taskData.category ?? DEFAULT_CATEGORY,
     })
     .eq("id", taskId)
     .select()
@@ -371,6 +369,12 @@ async function getTaskWithAssignments(taskId) {
   };
 }
 
+/**
+ * Creates a task_assignments row for (taskId, assignedToId) if one doesn't
+ * already exist. Low-level primitive — prefer `updateTaskAssignment` from
+ * UI code, since this alone does not clear out any *other* existing
+ * assignment rows for the task (e.g. a previous assignee).
+ */
 async function assignTask(taskId, assignedToId, assignedById) {
   if (!taskId || !assignedToId || !assignedById) {
     throw new Error("Missing assignment information");
@@ -408,6 +412,52 @@ async function assignTask(taskId, assignedToId, assignedById) {
   if (error) throw error;
 
   return normalizeAssignment(data);
+}
+
+/**
+ * Removes every task_assignments row for a task. Used whenever the
+ * assignee is being changed or cleared, so stale rows for previous
+ * assignees never linger (which would otherwise leave the old assignee
+ * seeing the task under "Assigned to me").
+ */
+async function clearTaskAssignments(taskId) {
+  const { error } = await supabase
+    .from(TASK_ASSIGNMENTS_TABLE)
+    .delete()
+    .eq("task_id", taskId);
+
+  if (error) throw error;
+}
+
+/**
+ * Single entry point for changing who a task is assigned to. Keeps
+ * `tasks.assigned_user_id` and the `task_assignments` table in sync:
+ *  - newAssignedToId is falsy -> unassign: clears both.
+ *  - newAssignedToId is set   -> clears any prior assignment rows for the
+ *    task, creates a fresh assignment row, and updates assigned_user_id.
+ *
+ * Returns { task, assignment } where assignment is null when unassigning.
+ */
+async function updateTaskAssignment(taskId, newAssignedToId, assignedById) {
+  if (!taskId) {
+    throw new Error("Missing task ID");
+  }
+
+  await clearTaskAssignments(taskId);
+
+  if (!newAssignedToId) {
+    const task = await setTaskAssignee(taskId, null);
+    return { task, assignment: null };
+  }
+
+  if (!assignedById) {
+    throw new Error("Missing assigner information");
+  }
+
+  const assignment = await assignTask(taskId, newAssignedToId, assignedById);
+  const task = await setTaskAssignee(taskId, newAssignedToId);
+
+  return { task, assignment };
 }
 
 async function updateAssignmentStatus(assignmentId, status) {
@@ -458,6 +508,9 @@ const taskService = {
   getAssignedTasks,
   getTaskWithAssignments,
   assignTask,
+  setTaskAssignee,
+  clearTaskAssignments,
+  updateTaskAssignment,
   updateAssignmentStatus,
   getTaskProgress,
 };
