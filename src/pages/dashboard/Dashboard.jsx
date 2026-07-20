@@ -23,11 +23,12 @@ const initialFormState = {
   status: "pending",
   dueDate: "",
   category: "General",
+  assignedUserId: "",
   subtasks: [],
 };
 
 function Dashboard() {
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -65,15 +66,20 @@ function Dashboard() {
       setAssignedLoading(true);
 
       try {
-        const [data, assigned] = await Promise.all([
-          taskService.getDashboardTasks(user.id),
-          taskService.getAssignedTasks(user.id),
-        ]);
+        const assigned = await taskService.getAssignedTasks(user.id);
 
-        if (isMounted) {
-          setTasks(data);
-          setAssignedTasks(assigned);
+        if (isAdmin) {
+          const data = await taskService.getDashboardTasks(user.id);
+          if (isMounted) setTasks(data);
+        } else {
+          // for normal users, show only tasks assigned to them
+          const tasksFromAssigned = (assigned || [])
+            .map((a) => a.task)
+            .filter(Boolean);
+          if (isMounted) setTasks(tasksFromAssigned);
         }
+
+        if (isMounted) setAssignedTasks(assigned);
       } catch (error) {
         toast.error(error?.message || "Unable to load dashboard data");
       } finally {
@@ -98,6 +104,15 @@ function Dashboard() {
     setSelectedTask(null);
     setFormData(initialFormState);
     setFormErrors({});
+    // load assignable users for the create form
+    (async () => {
+      try {
+        const users = await taskService.getTeamUsers();
+        setAssignableUsers(users);
+      } catch (err) {
+        // ignore
+      }
+    })();
     setIsModalOpen(true);
   };
 
@@ -113,8 +128,20 @@ function Dashboard() {
         ? new Date(task.dueDate).toISOString().split("T")[0]
         : "",
       category: task.category || "general",
+      assignedUserId:
+        (task.assignedUsers && task.assignedUsers[0]?.assignedToId) ||
+        (task.assignedUsers && task.assignedUsers[0]?.assignedUser?.id) ||
+        "",
     });
     setFormErrors({});
+    (async () => {
+      try {
+        const users = await taskService.getTeamUsers();
+        setAssignableUsers(users);
+      } catch (err) {
+        // ignore
+      }
+    })();
     setIsModalOpen(true);
   };
 
@@ -239,9 +266,44 @@ function Dashboard() {
 
       if (modalMode === "edit" && selectedTask?.id) {
         await taskService.updateTask(selectedTask.id, payload);
+        // update assigned user if changed
+        if (
+          (formData.assignedUserId || "") !==
+          (selectedTask?.assignedUsers?.[0]?.assignedToId ||
+            selectedTask?.assignedUsers?.[0]?.assignedUser?.id ||
+            "")
+        ) {
+          if (formData.assignedUserId) {
+            // create assignment record and set assigned_user_id
+            await taskService.assignTask(
+              selectedTask.id,
+              formData.assignedUserId,
+              user.id,
+            );
+            await taskService.setTaskAssignee(
+              selectedTask.id,
+              formData.assignedUserId,
+            );
+          } else {
+            // clear assignee
+            await taskService.setTaskAssignee(selectedTask.id, null);
+          }
+        }
         toast.success("Task updated successfully");
       } else {
-        await taskService.createTask(payload, user.id);
+        const created = await taskService.createTask(payload, user.id);
+        // set assignee if provided
+        if (formData.assignedUserId) {
+          await taskService.assignTask(
+            created.id,
+            formData.assignedUserId,
+            user.id,
+          );
+          await taskService.setTaskAssignee(
+            created.id,
+            formData.assignedUserId,
+          );
+        }
         toast.success("Task created successfully");
       }
 
@@ -598,6 +660,8 @@ function Dashboard() {
         <TaskList
           tasks={tasks}
           loading={false}
+          isAdmin={isAdmin}
+          currentUserId={user?.id}
           onAddTask={handleOpenCreateTaskModal}
           onAddSubtask={handleOpenSubtaskModal}
           onToggleSubtask={handleToggleSubtask}
@@ -765,6 +829,28 @@ function Dashboard() {
                   {formErrors.category}
                 </p>
               )}
+            </div>
+            <div className="md:col-span-2">
+              <label
+                className="mb-1 block text-sm font-medium text-slate-700"
+                htmlFor="assignedUser"
+              >
+                Assign To
+              </label>
+              <select
+                id="assignedUser"
+                name="assignedUserId"
+                value={formData.assignedUserId}
+                onChange={handleFieldChange}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+              >
+                <option value="">Unassigned</option>
+                {assignableUsers.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.full_name || u.name || u.email}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 

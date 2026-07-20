@@ -1,0 +1,34 @@
+name: Deploy Supabase Functions
+
+on:
+  push:
+    branches: [main, master, release/**]
+
+jobs:
+  deploy-functions:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install supabase CLI
+        run: npm install -g supabase
+
+      - name: Login to Supabase CLI
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          supabase login --access-token "$SUPABASE_ACCESS_TOKEN"
+
+      - name: Deploy functions
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          supabase functions deploy create-user --project-ref $SUPABASE_PROJECT_REF || true
+          supabase functions deploy update-user --project-ref $SUPABASE_PROJECT_REF || true
+          supabase functions deploy delete-user --project-ref $SUPABASE_PROJECT_REF || true

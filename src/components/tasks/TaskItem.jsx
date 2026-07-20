@@ -27,6 +27,8 @@ function TaskItem({
   onDragStart,
   onDropTask,
   onAssignTask,
+  isAdmin,
+  currentUserId,
 }) {
   const completedSubtasks =
     task.subtasks?.filter((item) => item.completed).length ?? 0;
@@ -95,20 +97,31 @@ function TaskItem({
           <button
             type="button"
             onClick={() => onEditTask?.(task)}
-            className="rounded-lg border border-blue-200 px-3 py-2 text-sm font-medium text-blue-700 transition hover:bg-blue-50"
+            disabled={
+              !isAdmin &&
+              task.assignedUserId &&
+              task.assignedUserId !== currentUserId
+            }
+            className="rounded-lg border border-blue-200 px-3 py-2 text-sm font-medium text-blue-700 transition hover:bg-blue-50 disabled:opacity-50"
           >
             Edit
           </button>
           <button
             type="button"
             onClick={() => onDeleteTask?.(task)}
-            className="rounded-lg border border-rose-200 px-3 py-2 text-sm font-medium text-rose-700 transition hover:bg-rose-50"
+            disabled={
+              !isAdmin &&
+              task.assignedUserId &&
+              task.assignedUserId !== currentUserId
+            }
+            className="rounded-lg border border-rose-200 px-3 py-2 text-sm font-medium text-rose-700 transition hover:bg-rose-50 disabled:opacity-50"
           >
             Delete
           </button>
           <button
             type="button"
             onClick={() => onAssignTask?.(task)}
+            style={{ display: isAdmin ? undefined : "none" }}
             className="rounded-lg border border-violet-200 px-3 py-2 text-sm font-medium text-violet-700 transition hover:bg-violet-50"
           >
             Assign Task
