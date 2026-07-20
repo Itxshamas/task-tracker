@@ -25,6 +25,7 @@ const sortOptions = [
 function TaskList({
   tasks = [],
   loading = false,
+  isAdmin = false,
   onAddTask,
   onAddSubtask,
   onToggleSubtask,
@@ -36,6 +37,7 @@ function TaskList({
   onDragStart,
   onDropTask,
   onAssignTask,
+  currentUserId,
 }) {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -265,6 +267,8 @@ function TaskList({
                     onDragStart={onDragStart}
                     onDropTask={onDropTask}
                     onAssignTask={onAssignTask}
+                    isAdmin={isAdmin}
+                    currentUserId={currentUserId}
                   />
                 ))
               ) : (

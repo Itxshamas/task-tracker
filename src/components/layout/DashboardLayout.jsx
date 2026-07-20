@@ -23,7 +23,7 @@ function DashboardLayout({ children }) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const location = useLocation();
-  const { logout, user } = useAuth();
+  const { logout, user, isAdmin } = useAuth();
 
   const displayName =
     user?.user_metadata?.full_name || user?.email?.split("@")[0] || "User";
@@ -61,6 +61,8 @@ function DashboardLayout({ children }) {
                 location.pathname === item.href ||
                 (item.href === "/dashboard" &&
                   location.pathname.startsWith("/dashboard"));
+              // don't show Users link to non-admins
+              if (item.name === "Users" && !isAdmin) return null;
 
               return (
                 <Link

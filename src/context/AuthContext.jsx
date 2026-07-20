@@ -8,6 +8,7 @@ export const AuthContext = createContext(null);
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [session, setSession] = useState(null);
+  const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -23,6 +24,23 @@ export function AuthProvider({ children }) {
 
         setSession(currentSession);
         setUser(currentSession?.user ?? null);
+
+        // load profile for the current user if available
+        try {
+          const userId = currentSession?.user?.id;
+          if (userId) {
+            const { data: p } = await supabase
+              .from("profiles")
+              .select("*")
+              .eq("id", userId)
+              .single();
+            setProfile(p ?? null);
+          } else {
+            setProfile(null);
+          }
+        } catch (e) {
+          setProfile(null);
+        }
 
         // If Supabase reports no active session but there are leftover
         // auth tokens in storage, clear them to avoid attempting refresh
@@ -89,6 +107,25 @@ export function AuthProvider({ children }) {
 
       setSession(nextSession);
       setUser(nextSession?.user ?? null);
+
+      // fetch profile on session change
+      (async () => {
+        try {
+          const userId = nextSession?.user?.id;
+          if (userId) {
+            const { data: p } = await supabase
+              .from("profiles")
+              .select("*")
+              .eq("id", userId)
+              .single();
+            setProfile(p ?? null);
+          } else {
+            setProfile(null);
+          }
+        } catch (e) {
+          setProfile(null);
+        }
+      })();
     });
 
     return () => {
@@ -134,6 +171,7 @@ export function AuthProvider({ children }) {
 
     setUser(null);
     setSession(null);
+    setProfile(null);
   }
 
   async function forgotPassword(email) {
@@ -147,6 +185,8 @@ export function AuthProvider({ children }) {
   const value = useMemo(
     () => ({
       user,
+      profile,
+      isAdmin: profile?.role === "admin",
       session,
       loading,
       register,

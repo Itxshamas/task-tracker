@@ -12,6 +12,8 @@ function TaskCard({
   onDragStart,
   onDropTask,
   onAssignTask,
+  isAdmin,
+  currentUserId,
 }) {
   return (
     <TaskItem
@@ -26,6 +28,8 @@ function TaskCard({
       onDragStart={onDragStart}
       onDropTask={onDropTask}
       onAssignTask={onAssignTask}
+      isAdmin={isAdmin}
+      currentUserId={currentUserId}
     />
   );
 }

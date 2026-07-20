@@ -19,6 +19,11 @@ function normalizeTask(task) {
     category: task.category ?? "General",
     subtasks: [],
     assignedUsers: [],
+    assignedUserId: task.assigned_user_id ?? null,
+    assignedUserName:
+      task.assigned_user_id && task.assigned_user_name
+        ? task.assigned_user_name
+        : null,
   };
 }
 
@@ -208,6 +213,19 @@ async function updateTask(taskId, taskData) {
       due_date: taskData.dueDate ?? null,
       category: taskData.category ?? "general",
     })
+    .eq("id", taskId)
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  return normalizeTask(data);
+}
+
+async function setTaskAssignee(taskId, assignedUserId) {
+  const { data, error } = await supabase
+    .from(TASK_TABLE)
+    .update({ assigned_user_id: assignedUserId })
     .eq("id", taskId)
     .select()
     .single();
