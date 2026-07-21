@@ -29,6 +29,7 @@ export function buildTaskStats(tasks = []) {
     total,
     completed,
     pending,
+    inProgress: pending,
     completionPercentage: total > 0 ? Math.round((completed / total) * 100) : 0,
     totalSubtasks: subtaskProgress.totalSubtasks,
     completedSubtasks: subtaskProgress.completedSubtasks,

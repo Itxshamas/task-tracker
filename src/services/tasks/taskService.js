@@ -55,6 +55,7 @@ function normalizeAssignment(assignment) {
           fullName: assignee.full_name || assignee.name || assignee.email,
           email: assignee.email,
           avatarUrl: assignee.avatar_url || null,
+          role: assignee.role ?? null,
         }
       : null,
     assignedByUser: assigner
@@ -63,6 +64,7 @@ function normalizeAssignment(assignment) {
           fullName: assigner.full_name || assigner.name || assigner.email,
           email: assigner.email,
           avatarUrl: assigner.avatar_url || null,
+          role: assigner.role ?? null,
         }
       : null,
     task: assignment.task ? normalizeTask(assignment.task) : null,
@@ -70,14 +72,36 @@ function normalizeAssignment(assignment) {
 }
 
 async function getTasks(userId) {
-  if (!userId) {
+  console.log("[taskService] logged-in user id", userId);
+
+  const query = supabase.from(TASK_TABLE).select("*").order("created_at", {
+    ascending: false,
+  });
+
+  if (userId) {
+    query.or(`user_id.eq.${userId},assigned_user_id.eq.${userId}`);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    console.error("[taskService] query error", error);
+    throw error;
+  }
+
+  console.log("[taskService] query result", data ?? []);
+  return (data ?? []).map(normalizeTask);
+}
+
+async function getTasksByIds(taskIds) {
+  if (!Array.isArray(taskIds) || !taskIds.length) {
     return [];
   }
 
   const { data, error } = await supabase
     .from(TASK_TABLE)
     .select("*")
-    .eq("user_id", userId)
+    .in("id", taskIds)
     .order("created_at", { ascending: false });
 
   if (error) throw error;
@@ -85,10 +109,137 @@ async function getTasks(userId) {
   return (data ?? []).map(normalizeTask);
 }
 
+async function hydrateAssignmentsWithTaskData(assignments) {
+  if (!Array.isArray(assignments) || !assignments.length) {
+    return [];
+  }
+
+  const missingTaskIds = [
+    ...new Set(
+      (assignments ?? [])
+        .filter((assignment) => !assignment.task && assignment.task_id)
+        .map((assignment) => assignment.task_id),
+    ),
+  ];
+
+  const tasksById = (
+    missingTaskIds.length ? await getTasksByIds(missingTaskIds) : []
+  ).reduce((accumulator, task) => {
+    if (task?.id) {
+      accumulator[task.id] = task;
+    }
+    return accumulator;
+  }, {});
+
+  return (assignments ?? []).map((assignment) => {
+    const taskSource = assignment.task || tasksById[assignment.task_id] || null;
+
+    return normalizeAssignment({
+      ...assignment,
+      task: taskSource,
+    });
+  });
+}
+
+async function hydrateTasksWithRelatedData(tasks) {
+  if (!Array.isArray(tasks) || !tasks.length) {
+    return [];
+  }
+
+  const taskIds = tasks.map((task) => task.id);
+
+  const [
+    { data: subtasks, error: subtasksError },
+    { data: assignments, error: assignmentsError },
+  ] = await Promise.all([
+    supabase.from(SUBTASK_TABLE).select("*").in("task_id", taskIds),
+    supabase
+      .from(TASK_ASSIGNMENTS_TABLE)
+      .select(
+        "*, assignedTo:profiles!task_assignments_assigned_to_fkey(*), assignedBy:profiles!task_assignments_assigned_by_fkey(*)",
+      )
+      .in("task_id", taskIds),
+  ]);
+
+  if (subtasksError) throw subtasksError;
+  if (assignmentsError) throw assignmentsError;
+
+  const subtasksByTask = (subtasks ?? []).reduce((accumulator, subtask) => {
+    const taskId = subtask.task_id;
+
+    if (!accumulator[taskId]) {
+      accumulator[taskId] = [];
+    }
+
+    accumulator[taskId].push(normalizeSubtask(subtask));
+    return accumulator;
+  }, {});
+
+  const assignmentsByTask = (assignments ?? []).reduce(
+    (accumulator, assignment) => {
+      const taskId = assignment.task_id;
+
+      if (!accumulator[taskId]) {
+        accumulator[taskId] = [];
+      }
+
+      accumulator[taskId].push(normalizeAssignment(assignment));
+      return accumulator;
+    },
+    {},
+  );
+
+  return tasks.map((task) => ({
+    ...task,
+    subtasks: subtasksByTask[task.id] ?? [],
+    assignedUsers: assignmentsByTask[task.id] ?? [],
+  }));
+}
+
+async function getTasksAssignedToUser(userId) {
+  if (!userId) {
+    return [];
+  }
+
+  console.log("[taskService] getTasksAssignedToUser", { userId });
+
+  const assignments = await getAssignedTasks(userId);
+
+  if (!assignments.length) {
+    return [];
+  }
+
+  const tasksById = assignments.reduce((accumulator, assignment) => {
+    const task = assignment.task;
+
+    if (!task || !task.id || accumulator[task.id]) {
+      return accumulator;
+    }
+
+    accumulator[task.id] = {
+      ...task,
+      assignedUserId: assignment.assignedToId,
+      assignedUserName:
+        assignment.assignedUser?.fullName ||
+        assignment.assignedUser?.email ||
+        null,
+    };
+
+    return accumulator;
+  }, {});
+
+  const tasks = Object.values(tasksById);
+
+  return hydrateTasksWithRelatedData(tasks);
+}
+
 async function getDashboardTasks(userId) {
-  const tasks = await getTasks(userId);
+  console.log("[taskService] getDashboardTasks userId", userId);
+
+  const tasks = userId ? await getTasks(userId) : await getTasks();
 
   if (!tasks.length) {
+    console.log("[taskService] getDashboardTasks result", []);
     return [];
   }
 
@@ -108,7 +259,10 @@ async function getDashboardTasks(userId) {
     )
     .in("task_id", taskIds);
 
-  if (assignmentsError) throw assignmentsError;
+  if (assignmentsError) {
+    console.error("[taskService] query error", assignmentsError);
+    throw assignmentsError;
+  }
 
   const subtasksByTask = (subtasks ?? []).reduce((accumulator, subtask) => {
     const taskId = subtask.task_id;
@@ -336,7 +490,7 @@ async function getAssignedTasks(userId) {
 
   if (error) throw error;
 
-  return (data ?? []).map(normalizeAssignment);
+  return hydrateAssignmentsWithTaskData(data ?? []);
 }
 
 async function getTaskWithAssignments(taskId) {
@@ -493,6 +647,8 @@ async function getTaskProgress(taskId) {
 
 const taskService = {
   getTasks,
+  getTasksByIds,
+  getTasksAssignedToUser,
   getDashboardTasks,
   createTask,
   createTaskWithSubtasks,

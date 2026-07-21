@@ -22,7 +22,7 @@ function normalizeTask(task: any): Task {
         ? "completed"
         : "pending",
     priority: (task.priority as TaskPriority) ?? "medium",
-    category: task.category ?? "General",
+    category: task.category ?? "general",
     due_date: task.due_date ?? task.dueDate ?? null,
     completed: Boolean(task.completed),
     created_at: task.created_at ?? task.createdAt ?? null,
@@ -106,9 +106,9 @@ async function createTask(
       title: taskData.title,
       description: taskData.description ?? "",
       priority: taskData.priority ?? "medium",
-      status: taskData.status ?? "todo",
+      status: taskData.status ?? "pending",
       due_date: taskData.dueDate ?? null,
-      category: taskData.category ?? "General",
+      category: taskData.category ?? "general",
       user_id: userId,
     })
     .select()
@@ -146,10 +146,7 @@ async function createTaskWithSubtasks(
     try {
       await deleteTask(task.id);
     } catch (cleanupError) {
-      console.error(
-        "Failed to clean up task after subtask creation failure",
-        cleanupError,
-      );
+      console.error("Failed to clean up task after subtask creation failure", cleanupError);
     }
 
     throw error;
@@ -171,7 +168,7 @@ async function updateTask(
       title: taskData.title,
       description: taskData.description ?? "",
       priority: taskData.priority ?? "medium",
-      status: taskData.status ?? "todo",
+      status: taskData.status ?? "pending",
       due_date: taskData.dueDate ?? null,
       category: taskData.category ?? "general",
     })

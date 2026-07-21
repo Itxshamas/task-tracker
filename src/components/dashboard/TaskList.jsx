@@ -121,9 +121,11 @@ function TaskList({
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
       <div className="mb-4 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <h3 className="text-lg font-semibold text-slate-900">Tasks</h3>
+          <h3 className="text-lg font-semibold text-slate-900">
+            Tasks & Assignments
+          </h3>
           <p className="text-sm text-slate-500">
-            Search, filter, and review your task list.
+            Search, filter, and review your assigned tasks and project tasks.
           </p>
         </div>
         <div className="w-full max-w-md">
@@ -230,13 +232,15 @@ function TaskList({
           <p className="mt-1 text-sm text-slate-500">
             Create your first task to get started.
           </p>
-          <button
-            type="button"
-            onClick={() => onAddTask?.()}
-            className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700"
-          >
-            Add Task
-          </button>
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => onAddTask?.()}
+              className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700"
+            >
+              Add Task
+            </button>
+          )}
         </div>
       ) : (
         <div className="grid gap-6 lg:grid-cols-2">
