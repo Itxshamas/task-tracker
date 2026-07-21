@@ -196,7 +196,7 @@ export function AuthProvider({ children }) {
       updatePassword,
       isAuthenticated: !!user,
     }),
-    [loading, session, user],
+    [loading, session, user, profile],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

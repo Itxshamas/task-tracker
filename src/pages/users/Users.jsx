@@ -7,7 +7,7 @@ import AssignToUserModal from "../../components/users/AssignToUserModal";
 import AddUserModal from "../../components/users/AddUserModal";
 import EditRoleModal from "../../components/users/EditRoleModal";
 import userService from "../../services/userService";
-import taskService from "../../services/tasks/taskService";
+import taskService from "../../services/tasks/taskService.js";
 import useAuth from "../../hooks/useAuth";
 import Avatar from "../../components/common/Avatar";
 
@@ -57,7 +57,7 @@ function Users() {
     try {
       await Promise.all(
         selectedTaskIds.map((taskId) =>
-          taskService.assignTask(taskId, selectedUser.id, user.id),
+          taskService.updateTaskAssignment(taskId, selectedUser.id, user.id),
         ),
       );
 
