@@ -4,7 +4,6 @@ import toast from "react-hot-toast";
 
 import DashboardCards from "../../components/dashboard/DashboardCards";
 import TaskList from "../../components/dashboard/TaskList";
-import UpcomingTasks from "../../components/dashboard/UpcomingTasks";
 import Modal from "../../components/common/Modal";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import useAuth from "../../hooks/useAuth";
@@ -464,8 +463,6 @@ function Dashboard() {
           onDragStart={handleDragStart}
           onDropTask={handleDropTask}
         />
-
-        <UpcomingTasks tasks={tasks} />
       </div>
 
       <Modal

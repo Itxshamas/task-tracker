@@ -437,9 +437,14 @@ async function updateTaskStatus(taskId, status) {
     .update({ status })
     .eq("id", taskId)
     .select()
-    .single();
+    .maybeSingle(); // Changed from .single() to .maybeSingle()
 
   if (error) throw error;
+
+  // If data is null, RLS blocked the update or task was not found
+  if (!data) {
+    throw new Error("You do not have permission to update this task.");
+  }
 
   return normalizeTask(data);
 }
